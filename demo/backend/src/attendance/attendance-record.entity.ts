@@ -15,9 +15,17 @@ export enum RecordStatus {
   SUSPECTED = 'SUSPECTED',
 }
 
+export enum UserRole {
+  AGENT = 'AGENT',
+  HOUSE_MANAGER = 'HOUSE_MANAGER',
+  ASSET_MANAGER = 'ASSET_MANAGER',
+}
+
 @Entity('attendance_records')
 @Index(['userId', 'createdAt'])
 @Index(['nfcTagId'])
+@Index(['role', 'taskType'])
+@Index(['houseId', 'role'])
 export class AttendanceRecord {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -28,13 +36,32 @@ export class AttendanceRecord {
   @Column({ name: 'user_name', type: 'varchar', length: 64, nullable: true })
   userName: string;
 
-  @Column({ 
-    name: 'record_type', 
-    type: 'enum', 
+  @Column({
+    name: 'record_type',
+    type: 'enum',
     enum: RecordType,
-    default: RecordType.CHECK_IN 
+    default: RecordType.CHECK_IN
   })
   recordType: RecordType;
+
+  // ===== 多角色多任务新增字段 =====
+
+  @Column({ name: 'role', type: 'varchar', length: 32, nullable: true })
+  role: string;
+
+  @Column({ name: 'task_type', type: 'varchar', length: 32, nullable: true })
+  taskType: string;
+
+  @Column({ name: 'task_name', type: 'varchar', length: 64, nullable: true })
+  taskName: string;
+
+  @Column({ name: 'require_checkout', type: 'boolean', default: false })
+  requireCheckout: boolean;
+
+  @Column({ name: 'task_data', type: 'jsonb', default: {} })
+  taskData: any;
+
+  // ===== 原有字段 =====
 
   @Column({ name: 'nfc_tag_id', type: 'varchar', length: 64 })
   nfcTagId: string;
@@ -99,11 +126,11 @@ export class AttendanceRecord {
   @Column({ name: 'anomaly_reason', type: 'text', nullable: true })
   anomalyReason: string;
 
-  @Column({ 
-    name: 'status', 
-    type: 'enum', 
+  @Column({
+    name: 'status',
+    type: 'enum',
     enum: RecordStatus,
-    default: RecordStatus.VALID 
+    default: RecordStatus.VALID
   })
   status: RecordStatus;
 

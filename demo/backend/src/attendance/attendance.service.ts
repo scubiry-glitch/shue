@@ -82,6 +82,20 @@ export class AttendanceService {
       throw new NotFoundException('NFC标签状态异常');
     }
 
+    // 解析任务配置
+    const TASK_NAMES: Record<string, string> = {
+      EMPTY_VIEW: '空看', SHOWING: '带看', SIGNING: '签约', RENEWAL: '续约谈',
+      INSPECTION: '房屋检修', CHECKIN_DELIVERY: '入住交付', CHECKOUT_INSPECTION: '退租验收',
+      EMERGENCY_REPAIR: '紧急维修', CLEANING_CHECK: '保洁验收',
+      PREPARE_OVERSEE: '整备监督', RENOVATION_CHECK: '装修验收', QUALITY_AUDIT: '质量巡检', VENDOR_SUPERVISE: '供应商监督',
+    };
+    const REQUIRE_CHECKOUT: Record<string, boolean> = {
+      EMPTY_VIEW: false, SHOWING: true, SIGNING: false, RENEWAL: false,
+      INSPECTION: true, CHECKIN_DELIVERY: true, CHECKOUT_INSPECTION: true,
+      EMERGENCY_REPAIR: true, CLEANING_CHECK: false,
+      PREPARE_OVERSEE: true, RENOVATION_CHECK: false, QUALITY_AUDIT: false, VENDOR_SUPERVISE: true,
+    };
+
     // 创建打卡记录
     const record = this.recordRepo.create({
       userId: dto.userId,
@@ -100,6 +114,12 @@ export class AttendanceService {
       houseName: nfcTag.houseId ? `房源${nfcTag.houseId}` : null,
       checkInTime: new Date(),
       photos: dto.photos || [],
+      // 多角色多任务字段
+      role: (dto as any).role || null,
+      taskType: (dto as any).taskType || null,
+      taskName: (dto as any).taskType ? (TASK_NAMES[(dto as any).taskType] || (dto as any).taskType) : null,
+      requireCheckout: (dto as any).taskType ? (REQUIRE_CHECKOUT[(dto as any).taskType] ?? false) : false,
+      taskData: (dto as any).taskData || {},
     });
 
     // 计算距离
@@ -133,7 +153,12 @@ export class AttendanceService {
     }
 
     record.checkOutTime = new Date();
-    
+
+    // 合并签退时提交的任务数据
+    if ((dto as any).taskData) {
+      record.taskData = { ...(record.taskData || {}), ...(dto as any).taskData };
+    }
+
     // 计算停留时长
     if (record.checkInTime) {
       record.durationSeconds = Math.floor(

@@ -7,6 +7,8 @@ import { PerformanceModule } from './performance/performance.module';
 import { StaffController } from './staff/staff.controller';
 import { NotificationController } from './notification/notification.controller';
 import { AppealController } from './appeal/appeal.controller';
+import { RoleConfigController } from './roles/role-config.controller';
+import { StatsController } from './stats/stats.controller';
 import { AttendanceRecord } from './attendance/attendance-record.entity';
 
 @Module({
@@ -29,6 +31,6 @@ import { AttendanceRecord } from './attendance/attendance-record.entity';
     AttendanceModule,
     PerformanceModule,
   ],
-  controllers: [AppController, StaffController, NotificationController, AppealController],
+  controllers: [AppController, StaffController, NotificationController, AppealController, RoleConfigController, StatsController],
 })
 export class AppModule {}

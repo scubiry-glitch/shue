@@ -71,6 +71,7 @@
             <div class="menu-item" onclick="showPage('houses')"><i class="fas fa-home"></i>房源管理</div>
             <div class="menu-item" onclick="showPage('staff')"><i class="fas fa-users"></i>人员管理</div>
             <div class="menu-item" onclick="showPage('anomalies')"><i class="fas fa-exclamation-triangle"></i>异常审核</div>
+            <div class="menu-item" onclick="showPage('multirole')"><i class="fas fa-user-tag"></i>多角色统计</div>
             <div class="menu-item" onclick="showPage('reports')"><i class="fas fa-file-alt"></i>报表中心</div>
             <div class="menu-item" onclick="showPage('settings')"><i class="fas fa-cog"></i>系统配置</div>
         </div>
@@ -347,6 +348,69 @@
 </div>
 
 <!-- ==================== 报表中心 ==================== -->
+<!-- ==================== 多角色统计 ==================== -->
+<div id="sec-multirole" class="page-section">
+    <!-- Tab 切换 -->
+    <div class="tab-nav">
+        <div class="tab-nav-item active" onclick="switchMultiTab('house')">房源打卡统计</div>
+        <div class="tab-nav-item" onclick="switchMultiTab('accountmgr')">客户经理</div>
+        <div class="tab-nav-item" onclick="switchMultiTab('emptyview')">空看统计</div>
+        <div class="tab-nav-item" onclick="switchMultiTab('housemanager')">管家任务</div>
+        <div class="tab-nav-item" onclick="switchMultiTab('assetmanager')">资管任务</div>
+    </div>
+
+    <!-- 房源多角色统计 -->
+    <div id="multi-house" class="card">
+        <div class="card-title"><span>房源多角色打卡统计</span><div style="display:flex;gap:8px;"><button class="btn btn-sm" onclick="loadMultiRoleStats()"><i class="fas fa-sync-alt"></i> 刷新</button><button class="btn btn-sm">导出</button></div></div>
+        <!-- 汇总卡片 -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;" id="multi-summary">
+        </div>
+        <table class="data-table">
+            <thead><tr><th>房源</th><th>客户经理空看</th><th>客户经理带看</th><th>经纪人空看</th><th>经纪人带看</th><th>管家检修</th><th>管家交付</th><th>资管整备</th><th>总计</th><th>热度</th></tr></thead>
+            <tbody id="multi-house-tbody"></tbody>
+        </table>
+    </div>
+
+    <!-- 客户经理任务 -->
+    <div id="multi-accountmgr" class="card" style="display:none;">
+        <div class="card-title"><span>客户经理任务统计 — 空看、带看</span></div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;" id="multi-am2-summary"></div>
+        <table class="data-table">
+            <thead><tr><th>客户经理</th><th>空看</th><th>带看</th><th>总计</th><th>平均用时</th></tr></thead>
+            <tbody id="multi-am2-tbody"></tbody>
+        </table>
+    </div>
+
+    <!-- ��看统计（经纪人+客户经理合并） -->
+    <div id="multi-emptyview" class="card" style="display:none;">
+        <div class="card-title"><span>空看统计 — 各房源被多少人空看过？（含客户经理+经纪人）</span></div>
+        <div style="margin-bottom:12px;padding:10px;background:#e6f4ff;border-radius:6px;font-size:13px;"><i class="fas fa-info-circle" style="color:var(--primary);margin-right:6px;"></i>核心指标: 空看人次、独立访客数（客户经理+经纪人），用于衡量房源热度</div>
+        <table class="data-table">
+            <thead><tr><th>房源</th><th>空看人次</th><th>独立经纪人</th><th>最近空看</th></tr></thead>
+            <tbody id="multi-ev-tbody"></tbody>
+        </table>
+    </div>
+
+    <!-- 管家任务 -->
+    <div id="multi-housemanager" class="card" style="display:none;">
+        <div class="card-title"><span>租户管家任务统计 — 检修、交付、退租完成率</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;" id="multi-hm-summary"></div>
+        <table class="data-table">
+            <thead><tr><th>管家</th><th>检修</th><th>交付</th><th>退租</th><th>维修</th><th>保洁</th><th>总计</th><th>平均用时</th></tr></thead>
+            <tbody id="multi-hm-tbody"></tbody>
+        </table>
+    </div>
+
+    <!-- 资管任务 -->
+    <div id="multi-assetmanager" class="card" style="display:none;">
+        <div class="card-title"><span>资管经理任务统计 — 整备、验收、巡检</span></div>
+        <table class="data-table">
+            <thead><tr><th>资管经理</th><th>整备监督</th><th>装修验收</th><th>质量巡检</th><th>供应商监督</th><th>总计</th></tr></thead>
+            <tbody id="multi-am-tbody"></tbody>
+        </table>
+    </div>
+</div>
+
 <div id="sec-reports" class="page-section">
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
         <div class="card" style="cursor:pointer;text-align:center;">
@@ -437,7 +501,7 @@ const API_BASE = window.location.origin;
 const pageTitles = {
     dashboard: '数据看板', attendance: '考勤管理', ranking: '绩效排名',
     promotion: '晋降级管理', houses: '房源管理', staff: '人员管理',
-    anomalies: '异常审核', reports: '报表中心', settings: '系统配置'
+    anomalies: '异常审核', multirole: '多角色统计', reports: '报表中心', settings: '系统配置'
 };
 
 function showPage(page) {
@@ -451,6 +515,7 @@ function showPage(page) {
     if (page === 'ranking') loadRankingData();
     if (page === 'houses') loadHouses();
     if (page === 'dashboard') loadDashboard();
+    if (page === 'multirole') loadMultiRoleStats();
 }
 
 // ===== 数据看板 =====
@@ -546,6 +611,129 @@ function formatDateTime(d) { if (!d) return '-'; const dt = new Date(d); return 
 function typeLabel(t) { return {CHECK_IN:'带看',INSPECT:'巡检',SIGNING:'签约',OFFICE_IN:'上班',OFFICE_OUT:'下班'}[t] || t; }
 function scoreColor(s) { return s >= 120 ? 'var(--success)' : s >= 80 ? 'var(--primary)' : s >= 60 ? '#d48806' : 'var(--danger)'; }
 function statusBadge(r) { return r.isAnomaly ? '<span class="badge badge-danger">异常</span>' : '<span class="badge badge-success">正常</span>'; }
+
+// ===== 多角色统计 =====
+function switchMultiTab(tab) {
+    ['house','accountmgr','emptyview','housemanager','assetmanager'].forEach(t => {
+        const el = document.getElementById('multi-' + t);
+        if (el) el.style.display = t === tab ? 'block' : 'none';
+    });
+    document.querySelectorAll('#sec-multirole .tab-nav-item').forEach((el, i) => {
+        el.classList.toggle('active', ['house','accountmgr','emptyview','housemanager','assetmanager'][i] === tab);
+    });
+    if (tab === 'accountmgr') loadRoleStats('ACCOUNT_MANAGER');
+    if (tab === 'emptyview') loadEmptyViewStats();
+    if (tab === 'housemanager') loadRoleStats('HOUSE_MANAGER');
+    if (tab === 'assetmanager') loadRoleStats('ASSET_MANAGER');
+}
+
+async function loadMultiRoleStats() {
+    try {
+        const data = await (await fetch(`${API_BASE}/stats/house`)).json();
+        const ROLE_LABELS = { ACCOUNT_MANAGER: '客户经理', AGENT: '经纪人', HOUSE_MANAGER: '管家', ASSET_MANAGER: '资管' };
+
+        // 汇总
+        let totalAM2 = 0, totalAgent = 0, totalHM = 0, totalAM = 0, totalAll = 0;
+        data.forEach(h => {
+            Object.entries(h.roles || {}).forEach(([role, rd]) => {
+                if (role === 'ACCOUNT_MANAGER') totalAM2 += rd.total;
+                if (role === 'AGENT') totalAgent += rd.total;
+                if (role === 'HOUSE_MANAGER') totalHM += rd.total;
+                if (role === 'ASSET_MANAGER') totalAM += rd.total;
+                totalAll += rd.total;
+            });
+        });
+        document.getElementById('multi-summary').innerHTML = `
+            <div class="stat-card"><div class="label">客户经理</div><div class="value" style="color:#d48806;">${totalAM2}</div></div>
+            <div class="stat-card"><div class="label">经纪人</div><div class="value" style="color:var(--primary);">${totalAgent}</div></div>
+            <div class="stat-card"><div class="label">管家</div><div class="value" style="color:var(--success);">${totalHM}</div></div>
+            <div class="stat-card"><div class="label">资管</div><div class="value" style="color:#722ed1;">${totalAM}</div></div>
+        `;
+
+        // 表格
+        document.getElementById('multi-house-tbody').innerHTML = data.map(h => {
+            const get = (role, task) => h.roles?.[role]?.tasks?.[task]?.count || 0;
+            const getU = (role, task) => h.roles?.[role]?.tasks?.[task]?.uniqueUsers || 0;
+            const am2EV = get('ACCOUNT_MANAGER','EMPTY_VIEW');
+            const am2SH = get('ACCOUNT_MANAGER','SHOWING');
+            const agentEV = get('AGENT','EMPTY_VIEW');
+            const agentSH = get('AGENT','SHOWING');
+            const hmInsp = get('HOUSE_MANAGER','INSPECTION');
+            const hmDeliv = get('HOUSE_MANAGER','CHECKIN_DELIVERY');
+            const amPrep = get('ASSET_MANAGER','PREPARE_OVERSEE');
+            const total = h.totalRecords;
+            const heat = total >= 10 ? '🔥🔥🔥' : total >= 5 ? '🔥🔥' : total >= 1 ? '🔥' : '-';
+            return `<tr>
+                <td style="font-weight:600;">${h.houseName || h.houseId}</td>
+                <td>${am2EV} <span style="color:#8C8C8C;font-size:11px;">(${getU('ACCOUNT_MANAGER','EMPTY_VIEW')}人)</span></td>
+                <td>${am2SH}</td>
+                <td>${agentEV} <span style="color:#8C8C8C;font-size:11px;">(${getU('AGENT','EMPTY_VIEW')}人)</span></td>
+                <td>${agentSH}</td><td>${hmInsp}</td><td>${hmDeliv}</td><td>${amPrep}</td>
+                <td style="font-weight:600;">${total}</td><td>${heat}</td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="8" style="text-align:center;color:#8C8C8C;">暂无数据，请先通过H5端打卡</td></tr>';
+    } catch(e) { console.error(e); }
+}
+
+async function loadEmptyViewStats() {
+    try {
+        const data = await (await fetch(`${API_BASE}/stats/empty-views`)).json();
+        document.getElementById('multi-ev-tbody').innerHTML = data.map(h => `
+            <tr>
+                <td style="font-weight:600;">${h.houseName || h.houseId}</td>
+                <td style="font-weight:700;color:var(--primary);">${h.totalViews}</td>
+                <td>${h.uniqueAgents} 人</td>
+                <td style="font-size:12px;">${h.recentVisits?.[0] ? h.recentVisits[0].userName + ' ' + formatDateTime(h.recentVisits[0].time) : '-'}</td>
+            </tr>
+        `).join('') || '<tr><td colspan="4" style="text-align:center;color:#8C8C8C;">暂无空看数据</td></tr>';
+    } catch(e) { console.error(e); }
+}
+
+async function loadRoleStats(role) {
+    try {
+        const data = await (await fetch(`${API_BASE}/stats/by-role?role=${role}`)).json();
+        const isHM = role === 'HOUSE_MANAGER';
+        const isAM2 = role === 'ACCOUNT_MANAGER';
+        const tbodyId = isAM2 ? 'multi-am2-tbody' : isHM ? 'multi-hm-tbody' : 'multi-am-tbody';
+        const summaryId = isAM2 ? 'multi-am2-summary' : isHM ? 'multi-hm-summary' : null;
+
+        // 汇总卡片
+        if (summaryId && data.taskBreakdown) {
+            document.getElementById(summaryId).innerHTML = data.taskBreakdown.slice(0, 3).map(t => `
+                <div class="stat-card"><div class="label">${t.taskType === 'INSPECTION' ? '🔧 检修' : t.taskType === 'CHECKIN_DELIVERY' ? '🤝 交付' : t.taskType === 'CHECKOUT_INSPECTION' ? '📦 退租' : t.taskType}</div>
+                <div class="value" style="color:var(--primary);">${t.count}</div>
+                <div class="trend">均时 ${t.avgDurationMinutes}min</div></div>
+            `).join('');
+        }
+
+        // 人员明细
+        if (data.userBreakdown) {
+            if (isAM2) {
+                document.getElementById(tbodyId).innerHTML = data.userBreakdown.map(u => `
+                    <tr><td style="font-weight:600;">${u.userName}</td>
+                    <td>${u.tasks?.EMPTY_VIEW || 0}</td><td>${u.tasks?.SHOWING || 0}</td>
+                    <td style="font-weight:700;">${u.total}</td>
+                    <td>${u.avgDurationMinutes}min</td></tr>
+                `).join('') || '<tr><td colspan="5" style="text-align:center;color:#8C8C8C;">暂无数据</td></tr>';
+            } else if (isHM) {
+                document.getElementById(tbodyId).innerHTML = data.userBreakdown.map(u => `
+                    <tr><td style="font-weight:600;">${u.userName}</td>
+                    <td>${u.tasks?.INSPECTION || 0}</td><td>${u.tasks?.CHECKIN_DELIVERY || 0}</td>
+                    <td>${u.tasks?.CHECKOUT_INSPECTION || 0}</td><td>${u.tasks?.EMERGENCY_REPAIR || 0}</td>
+                    <td>${u.tasks?.CLEANING_CHECK || 0}</td><td style="font-weight:700;">${u.total}</td>
+                    <td>${u.avgDurationMinutes}min</td></tr>
+                `).join('') || '<tr><td colspan="8" style="text-align:center;color:#8C8C8C;">暂无数据</td></tr>';
+            } else {
+                document.getElementById(tbodyId).innerHTML = data.userBreakdown.map(u => `
+                    <tr><td style="font-weight:600;">${u.userName}</td>
+                    <td>${u.tasks?.PREPARE_OVERSEE || 0}</td><td>${u.tasks?.RENOVATION_CHECK || 0}</td>
+                    <td>${u.tasks?.QUALITY_AUDIT || 0}</td><td>${u.tasks?.VENDOR_SUPERVISE || 0}</td>
+                    <td style="font-weight:700;">${u.total}</td></tr>
+                `).join('') || '<tr><td colspan="6" style="text-align:center;color:#8C8C8C;">暂无数据</td></tr>';
+            }
+        }
+    } catch(e) { console.error(e); }
+}
 
 // ===== 时钟 =====
 function updateTime() { document.getElementById('current-time').textContent = new Date().toLocaleString('zh-CN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }

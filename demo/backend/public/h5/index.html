@@ -146,19 +146,57 @@
         <span style="font-size:16px;font-weight:600;">NFC打卡</span>
         <span style="margin-left:auto;font-size:13px;cursor:pointer;">帮助</span>
     </div>
-    <div style="text-align:center;padding:20px;">
-        <div class="nfc-ring" id="nfc-ring">
-            <div style="text-align:center;">
-                <i class="fas fa-wifi" style="font-size:40px;color:var(--primary);transform:rotate(90deg);"></i>
-                <div style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请将手机靠近<br>NFC标签感应</div>
-            </div>
-        </div>
-        <button class="btn btn-primary" style="max-width:280px;margin:0 auto;" onclick="doSimulateCheckIn()">
-            <i class="fas fa-wifi" style="margin-right:8px;"></i>开始扫描
-        </button>
+
+    <!-- 房源信息（模拟NFC感应后） -->
+    <div class="card" style="margin-top:12px;">
+        <div style="font-size:13px;color:var(--text-secondary);">📍 当前房源</div>
+        <div style="font-size:16px;font-weight:700;margin-top:4px;" id="ck-house-name">请先刷NFC标签</div>
+        <div style="font-size:12px;color:var(--text-secondary);" id="ck-house-addr"></div>
     </div>
-    <div style="padding:0 16px;">
-        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">今日已打卡房源</div>
+
+    <!-- 角色选择 -->
+    <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:13px;color:var(--text-secondary);">👤 当前角色</span>
+        </div>
+        <select id="ck-role" onchange="onRoleChange()" style="width:100%;padding:10px 12px;border:1px solid #d9d9d9;border-radius:8px;font-size:15px;margin-top:6px;background:#fff;">
+            <option value="">加载中...</option>
+        </select>
+    </div>
+
+    <!-- 任务选择 -->
+    <div class="card">
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">📋 选择任务</div>
+        <div id="ck-task-list" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            <!-- 动态渲染 -->
+        </div>
+    </div>
+
+    <!-- 任务表单（根据任务类型动态变化） -->
+    <div class="card" id="ck-task-form" style="display:none;">
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">📝 任务信息</div>
+        <div id="ck-form-fields">
+            <!-- 动态渲染 -->
+        </div>
+    </div>
+
+    <!-- 备注 -->
+    <div class="card">
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">📝 备注 (可选)</div>
+        <textarea id="ck-notes" rows="2" placeholder="输入备注..." style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:8px;font-size:14px;resize:none;"></textarea>
+    </div>
+
+    <!-- 打卡按钮 -->
+    <div style="padding:0 16px 12px;">
+        <button class="btn btn-primary" id="ck-submit-btn" onclick="doMultiRoleCheckIn()" disabled>
+            <i class="fas fa-wifi" style="margin-right:8px;"></i><span id="ck-btn-text">请先选择任务</span>
+        </button>
+        <div style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-secondary);" id="ck-hint"></div>
+    </div>
+
+    <!-- 今日记录 -->
+    <div style="padding:0 16px 16px;">
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">今日已打卡</div>
         <div id="checkin-today-list">
             <div class="empty-state"><i class="fas fa-inbox"></i>暂无打卡记录</div>
         </div>
@@ -442,7 +480,7 @@ function navigate(page) {
     if (page === 'ranking') renderRanking();
     if (page === 'notifications') renderNotifications();
     if (page === 'appeal') renderAppeals();
-    if (page === 'checkin') loadCheckinToday();
+    if (page === 'checkin') { loadRoleConfigs(); simulateNfcScan(); loadCheckinToday(); }
 
     window.scrollTo(0, 0);
 }
@@ -464,15 +502,104 @@ async function loadHomeData() {
     document.getElementById('home-greeting').textContent = `${greeting}，${USER.name}`;
 }
 
-// ===== NFC打卡 =====
-async function doSimulateCheckIn() {
+// ===== 多角色打卡 =====
+let roleConfigs = [];
+let selectedRole = '';
+let selectedTask = null;
+let currentNfcTag = null;
+
+async function loadRoleConfigs() {
+    try {
+        roleConfigs = await (await fetch(`${API_BASE}/roles/config`)).json();
+        const sel = document.getElementById('ck-role');
+        sel.innerHTML = roleConfigs.map(r => `<option value="${r.roleCode}">${r.icon} ${r.roleName}</option>`).join('');
+        selectedRole = roleConfigs[0]?.roleCode || '';
+        onRoleChange();
+    } catch(e) { console.error('加载角色配置失败', e); }
+}
+
+function onRoleChange() {
+    selectedRole = document.getElementById('ck-role').value;
+    selectedTask = null;
+    const role = roleConfigs.find(r => r.roleCode === selectedRole);
+    if (!role) return;
+
+    const container = document.getElementById('ck-task-list');
+    container.innerHTML = role.taskTypes.map(t => `
+        <div onclick="selectTask('${t.code}')" id="task-${t.code}"
+             style="text-align:center;padding:14px 8px;border-radius:10px;border:2px solid #f0f0f0;cursor:pointer;transition:all 0.2s;">
+            <div style="font-size:24px;margin-bottom:4px;">${t.icon}</div>
+            <div style="font-size:13px;font-weight:600;">${t.name}</div>
+            <div style="font-size:10px;color:var(--text-secondary);margin-top:2px;">${t.requireCheckout ? '需签退' : '即时'}</div>
+        </div>
+    `).join('');
+
+    document.getElementById('ck-task-form').style.display = 'none';
+    document.getElementById('ck-submit-btn').disabled = true;
+    document.getElementById('ck-btn-text').textContent = '请先选择任务';
+    document.getElementById('ck-hint').textContent = '';
+}
+
+function selectTask(taskCode) {
+    const role = roleConfigs.find(r => r.roleCode === selectedRole);
+    selectedTask = role?.taskTypes.find(t => t.code === taskCode);
+    if (!selectedTask) return;
+
+    // 高亮选中
+    document.querySelectorAll('#ck-task-list > div').forEach(el => {
+        el.style.borderColor = '#f0f0f0'; el.style.background = '#fff';
+    });
+    const el = document.getElementById('task-' + taskCode);
+    if (el) { el.style.borderColor = 'var(--primary)'; el.style.background = '#e6f4ff'; }
+
+    // 渲染自定义表单字段
+    const formDiv = document.getElementById('ck-task-form');
+    const fieldsDiv = document.getElementById('ck-form-fields');
+    if (selectedTask.customFields?.length > 0) {
+        formDiv.style.display = 'block';
+        fieldsDiv.innerHTML = selectedTask.customFields.map(f => {
+            if (f.type === 'TEXT') return `<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);">${f.label}${f.required ? ' *' : ''}</label><input type="text" data-field="${f.field}" placeholder="${f.label}" style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:8px;margin-top:4px;font-size:14px;"></div>`;
+            if (f.type === 'NUMBER') return `<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);">${f.label}${f.required ? ' *' : ''}</label><input type="number" data-field="${f.field}" placeholder="${f.label}" style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:8px;margin-top:4px;font-size:14px;"></div>`;
+            if (f.type === 'TEXTAREA') return `<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);">${f.label}</label><textarea data-field="${f.field}" rows="2" placeholder="${f.label}" style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:8px;margin-top:4px;font-size:14px;resize:none;"></textarea></div>`;
+            if (f.type === 'CHECKBOX') return `<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);">${f.label}${f.required ? ' *' : ''}</label><div style="margin-top:6px;">${(f.options||[]).map(o => `<label style="display:flex;align-items:center;padding:6px 0;font-size:14px;cursor:pointer;"><input type="checkbox" data-field="${f.field}" value="${o}" style="margin-right:8px;width:18px;height:18px;">${o}</label>`).join('')}</div></div>`;
+            return '';
+        }).join('');
+    } else {
+        formDiv.style.display = 'none';
+    }
+
+    // 更新按钮
+    document.getElementById('ck-submit-btn').disabled = false;
+    const btnText = selectedTask.requireCheckout ? `🔵 NFC签入 (开始${selectedTask.name})` : `✅ 确认${selectedTask.name}打卡`;
+    document.getElementById('ck-btn-text').textContent = btnText;
+    document.getElementById('ck-hint').textContent = selectedTask.requireCheckout ? '⚠️ 签入后请完成任务再刷卡签退' : `ℹ️ ${selectedTask.name}模式: 一刷即记录`;
+}
+
+function collectTaskData() {
+    const data = {};
+    document.querySelectorAll('#ck-form-fields [data-field]').forEach(el => {
+        const field = el.dataset.field;
+        if (el.type === 'checkbox') {
+            if (!data[field]) data[field] = [];
+            if (el.checked) data[field].push(el.value);
+        } else {
+            data[field] = el.value;
+        }
+    });
+    const notes = document.getElementById('ck-notes').value;
+    if (notes) data.notes = notes;
+    return data;
+}
+
+async function doMultiRoleCheckIn() {
+    if (!selectedTask) return;
     try {
         let tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
         if (tags.length === 0) {
             await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
             tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
         }
-        const tag = tags[Math.floor(Math.random() * tags.length)];
+        const tag = currentNfcTag || tags[Math.floor(Math.random() * tags.length)];
         const gpsLat = tag.lat + (Math.random() - 0.5) * 0.001;
         const gpsLng = tag.lng + (Math.random() - 0.5) * 0.001;
 
@@ -483,17 +610,37 @@ async function doSimulateCheckIn() {
                 nfcTagId: tag.tagId, userId: USER.id, userName: USER.name,
                 recordType: 'CHECK_IN', gpsLat, gpsLng,
                 gpsAccuracy: 5 + Math.random() * 15,
-                deviceId: 'demo_device_001', deviceModel: 'iPhone 15 Pro', photos: []
+                deviceId: 'demo_device_001', deviceModel: 'iPhone 15 Pro', photos: [],
+                role: selectedRole,
+                taskType: selectedTask.code,
+                taskData: collectTaskData(),
             })
         });
         const data = await res.json();
-        const msg = data.isAnomaly
-            ? `打卡成功 (异常: ${data.anomalyReason})\n质量评分: ${data.qualityScore}分`
-            : `打卡成功!\n房源: ${data.houseName || tag.address}\n质量评分: ${data.qualityScore}分`;
+
+        let msg = `${selectedTask.name}打卡成功!\n`;
+        msg += `房源: ${data.houseName || tag.address}\n`;
+        msg += `质量评分: ${data.qualityScore}分\n`;
+        if (data.requireCheckout) msg += '\n⚠️ 请完成任务后再次刷卡签退';
+        if (data.isAnomaly) msg += `\n⚠️ 异常: ${data.anomalyReason}`;
         alert(msg);
+
         loadCheckinToday();
         loadHomeData();
     } catch(e) { alert('打卡失败: ' + e.message); }
+}
+
+async function simulateNfcScan() {
+    try {
+        let tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
+        if (tags.length === 0) {
+            await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
+            tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
+        }
+        currentNfcTag = tags[Math.floor(Math.random() * tags.length)];
+        document.getElementById('ck-house-name').textContent = currentNfcTag.address?.split('号')[0] + '号' || currentNfcTag.tagId;
+        document.getElementById('ck-house-addr').textContent = `标签: ${currentNfcTag.tagId} | ${currentNfcTag.tagType === 'HOUSE' ? '房源' : '门店'}`;
+    } catch(e) { console.error(e); }
 }
 
 async function loadCheckinToday() {
@@ -510,11 +657,14 @@ async function loadCheckinToday() {
             <div style="display:flex;align-items:center;padding:12px;background:#fff;border-radius:8px;margin-bottom:8px;border-left:3px solid ${r.isAnomaly ? 'var(--danger)' : 'var(--success)'};">
                 <div style="flex:1;">
                     <div style="font-weight:600;font-size:14px;">${r.houseName || r.nfcTagId}</div>
-                    <div style="font-size:12px;color:var(--text-secondary);">${formatTime(r.checkInTime)}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">
+                        ${r.taskName ? `<span class="badge badge-info">${r.taskName}</span> ` : ''}${formatTime(r.checkInTime)}
+                        ${r.requireCheckout && !r.checkOutTime ? ' <span class="badge badge-warning">待签退</span>' : ''}
+                    </div>
                 </div>
                 <div style="text-align:right;">
                     <div style="font-weight:700;color:${getScoreColor(r.qualityScore)};">${r.qualityScore}/150</div>
-                    <div style="font-size:11px;color:var(--text-secondary);">${r.isAnomaly ? '异常' : '正常'}</div>
+                    <div style="font-size:11px;color:var(--text-secondary);">${r.role ? ({'ACCOUNT_MANAGER':'客户经理','AGENT':'经纪人','HOUSE_MANAGER':'管家','ASSET_MANAGER':'资管'}[r.role]||r.role) : ''}</div>
                 </div>
             </div>
         `).join('');
@@ -667,6 +817,7 @@ function getTypeIcon(t) { return { CHECK_IN:'🏠', INSPECT:'🔍', SIGNING:'✍
 
 // ===== 初始化 =====
 loadHomeData();
+loadRoleConfigs();
 </script>
 </body>
 </html>
