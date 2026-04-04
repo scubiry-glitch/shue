@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>租务管家NFC考勤系统 - 运营管理端</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root { --primary: #1677FF; --success: #52C41A; --warning: #FAAD14; --danger: #F5222D; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #F0F2F5; color: #262626; font-size: 14px; }
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar { width: 220px; background: #001529; color: #fff; flex-shrink: 0; position: fixed; height: 100vh; overflow-y: auto; z-index: 50; }
+        .sidebar-logo { padding: 20px; font-size: 16px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 10px; }
+        .sidebar-menu { padding: 8px 0; }
+        .menu-item { display: flex; align-items: center; padding: 12px 24px; cursor: pointer; color: rgba(255,255,255,0.65); transition: all 0.2s; font-size: 14px; gap: 10px; }
+        .menu-item:hover { color: #fff; background: rgba(255,255,255,0.05); }
+        .menu-item.active { color: #fff; background: var(--primary); }
+        .menu-item i { width: 16px; text-align: center; }
+        .main { margin-left: 220px; flex: 1; min-height: 100vh; }
+        .topbar { background: #fff; padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 4px rgba(0,21,41,0.08); position: sticky; top: 0; z-index: 40; }
+        .content { padding: 24px; }
+        .page-section { display: none; }
+        .page-section.active { display: block; }
+        .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); margin-bottom: 16px; }
+        .card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+        .stat-card { text-align: center; padding: 20px; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+        .stat-card .value { font-size: 30px; font-weight: 700; margin-bottom: 4px; }
+        .stat-card .label { font-size: 13px; color: #8C8C8C; }
+        .stat-card .trend { font-size: 12px; margin-top: 4px; }
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table th { background: #fafafa; padding: 12px 16px; text-align: left; font-weight: 600; font-size: 13px; color: #8C8C8C; border-bottom: 1px solid #f0f0f0; }
+        .data-table td { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        .data-table tr:hover { background: #fafafa; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+        .badge-success { background: #f6ffed; color: var(--success); }
+        .badge-warning { background: #fffbe6; color: #d48806; }
+        .badge-danger { background: #fff2f0; color: var(--danger); }
+        .badge-info { background: #e6f4ff; color: var(--primary); }
+        .btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #d9d9d9; background: #fff; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .btn:hover { border-color: var(--primary); color: var(--primary); }
+        .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .btn-primary:hover { background: #4096ff; }
+        .btn-sm { padding: 4px 12px; font-size: 12px; }
+        .filter-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+        .filter-bar select, .filter-bar input { padding: 6px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 13px; }
+        .tab-nav { display: flex; border-bottom: 2px solid #f0f0f0; margin-bottom: 16px; }
+        .tab-nav-item { padding: 10px 20px; cursor: pointer; color: #8C8C8C; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab-nav-item.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+        .config-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid #f5f5f5; }
+        .config-item:last-child { border-bottom: none; }
+        .config-label { font-weight: 500; }
+        .config-desc { font-size: 12px; color: #8C8C8C; margin-top: 2px; }
+        .config-input { padding: 6px 12px; border: 1px solid #d9d9d9; border-radius: 6px; width: 120px; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="layout">
+    <!-- ===== 侧边栏 ===== -->
+    <div class="sidebar">
+        <div class="sidebar-logo">
+            <i class="fas fa-building"></i>
+            <span>NFC考勤管理</span>
+        </div>
+        <div class="sidebar-menu">
+            <div class="menu-item active" onclick="showPage('dashboard')"><i class="fas fa-tachometer-alt"></i>数据看板</div>
+            <div class="menu-item" onclick="showPage('attendance')"><i class="fas fa-clock"></i>考勤管理</div>
+            <div class="menu-item" onclick="showPage('ranking')"><i class="fas fa-chart-bar"></i>绩效排名</div>
+            <div class="menu-item" onclick="showPage('promotion')"><i class="fas fa-level-up-alt"></i>晋降级管理</div>
+            <div class="menu-item" onclick="showPage('houses')"><i class="fas fa-home"></i>房源管理</div>
+            <div class="menu-item" onclick="showPage('staff')"><i class="fas fa-users"></i>人员管理</div>
+            <div class="menu-item" onclick="showPage('anomalies')"><i class="fas fa-exclamation-triangle"></i>异常审核</div>
+            <div class="menu-item" onclick="showPage('reports')"><i class="fas fa-file-alt"></i>报表中心</div>
+            <div class="menu-item" onclick="showPage('settings')"><i class="fas fa-cog"></i>系统配置</div>
+        </div>
+    </div>
+
+    <!-- ===== 主区域 ===== -->
+    <div class="main">
+        <div class="topbar">
+            <div style="font-weight:600;" id="page-title">数据看板</div>
+            <div style="display:flex;align-items:center;gap:16px;">
+                <span style="font-size:13px;color:#8C8C8C;" id="current-time"></span>
+                <span style="font-size:13px;"><i class="fas fa-bell" style="margin-right:4px;"></i>消息</span>
+                <span style="font-size:13px;"><i class="fas fa-user-circle" style="margin-right:4px;"></i>管理员</span>
+            </div>
+        </div>
+        <div class="content">
+
+<!-- ==================== 数据看板 ==================== -->
+<div id="sec-dashboard" class="page-section active">
+    <!-- 顶部统计卡片 -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;">
+        <div class="stat-card"><div class="label">总人数</div><div class="value" style="color:var(--primary);" id="dash-total">56</div><div class="trend" style="color:var(--success);">+2 本月新增</div></div>
+        <div class="stat-card"><div class="label">今日出勤</div><div class="value" style="color:var(--success);" id="dash-attend">52</div><div class="trend">出勤率 92.8%</div></div>
+        <div class="stat-card"><div class="label">异常人数</div><div class="value" style="color:var(--danger);" id="dash-anomaly">4</div><div class="trend" style="color:var(--danger);">需关注</div></div>
+        <div class="stat-card"><div class="label">平均质量分</div><div class="value" style="color:#722ed1;" id="dash-score">128</div><div class="trend" style="color:var(--success);">+5 较昨日</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+        <!-- 业务数据 -->
+        <div class="card">
+            <div class="card-title">业务数据</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div style="padding:16px;background:#f9fafb;border-radius:8px;text-align:center;">
+                    <div style="font-size:28px;font-weight:700;color:var(--primary);" id="dash-showings">128</div>
+                    <div style="font-size:12px;color:#8C8C8C;">今日带看</div>
+                </div>
+                <div style="padding:16px;background:#f9fafb;border-radius:8px;text-align:center;">
+                    <div style="font-size:28px;font-weight:700;color:var(--success);">87%</div>
+                    <div style="font-size:12px;color:#8C8C8C;">验证通过率</div>
+                </div>
+            </div>
+        </div>
+        <!-- 团队排名 -->
+        <div class="card">
+            <div class="card-title">部门排名 (带看数)</div>
+            <table class="data-table">
+                <tr><td style="font-weight:600;">🥇 静安一部</td><td style="text-align:right;">45次</td></tr>
+                <tr><td style="font-weight:600;">🥈 徐汇二部</td><td style="text-align:right;">38次</td></tr>
+                <tr><td style="font-weight:600;">🥉 浦东三部</td><td style="text-align:right;">32次</td></tr>
+                <tr><td>长宁一部</td><td style="text-align:right;">28次</td></tr>
+                <tr><td>黄浦一部</td><td style="text-align:right;">25次</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- 预警提醒 -->
+    <div class="card">
+        <div class="card-title">
+            <span><i class="fas fa-exclamation-triangle" style="color:var(--warning);margin-right:6px;"></i>绩效提升预警人员 (3人)</span>
+            <button class="btn btn-sm">查看全部</button>
+        </div>
+        <table class="data-table">
+            <thead><tr><th>姓名</th><th>职级</th><th>系数A</th><th>底线B</th><th>系数C</th><th>预警原因</th></tr></thead>
+            <tbody>
+                <tr><td style="font-weight:600;">王某某</td><td>A级</td><td>0.6</td><td><span class="badge badge-success">达标</span></td><td>0.7</td><td><span class="badge badge-warning">系数A连续低</span></td></tr>
+                <tr><td style="font-weight:600;">李某某</td><td>S1</td><td>0.75</td><td><span class="badge badge-danger">未达标</span></td><td>0.65</td><td><span class="badge badge-danger">底线B未达标</span></td></tr>
+                <tr><td style="font-weight:600;">赵某某</td><td>M级</td><td>0.5</td><td><span class="badge badge-success">达标</span></td><td>0.6</td><td><span class="badge badge-danger">已在低绩效名单</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 待处理异常 -->
+    <div class="card">
+        <div class="card-title">
+            <span><i class="fas fa-bell" style="color:var(--danger);margin-right:6px;"></i>待处理异常 (5条)</span>
+            <button class="btn btn-sm btn-primary" onclick="showPage('anomalies')">去处理</button>
+        </div>
+        <table class="data-table">
+            <thead><tr><th>时间</th><th>姓名</th><th>类型</th><th>房源</th><th>异常原因</th><th>状态</th></tr></thead>
+            <tbody id="dash-anomaly-table">
+                <tr><td>04-03 14:20</td><td>李华</td><td>带看</td><td>徐家汇花园</td><td>GPS偏差65米 + 停留5分钟</td><td><span class="badge badge-warning">待审核</span></td></tr>
+                <tr><td>04-03 16:45</td><td>王强</td><td>巡检</td><td>浦东新苑</td><td>GPS偏差120米</td><td><span class="badge badge-warning">待审核</span></td></tr>
+                <tr><td>04-03 09:30</td><td>陈静</td><td>Office</td><td>总部</td><td>迟到30分钟</td><td><span class="badge badge-warning">待审核</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 考勤管理 ==================== -->
+<div id="sec-attendance" class="page-section">
+    <div class="card">
+        <div class="card-title">考勤记录</div>
+        <div class="filter-bar">
+            <label style="font-size:13px;">日期:</label><input type="date" value="2025-04-03">
+            <label style="font-size:13px;">~</label><input type="date" value="2025-04-03">
+            <select><option>全部部门</option><option>静安一部</option><option>徐汇二部</option><option>浦东三部</option></select>
+            <select><option>全部类型</option><option>带看</option><option>巡检</option><option>Office</option></select>
+            <input type="text" placeholder="搜索姓名...">
+            <button class="btn btn-primary" onclick="loadAttendanceRecords()">查询</button>
+            <button class="btn">重置</button>
+        </div>
+        <table class="data-table">
+            <thead><tr><th><input type="checkbox"></th><th>时间</th><th>姓名</th><th>类型</th><th>房源/位置</th><th>GPS偏差</th><th>质量分</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="attendance-table-body">
+                <!-- 动态加载 -->
+            </tbody>
+        </table>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-sm">批量导出</button>
+                <button class="btn btn-sm" style="color:var(--success);border-color:var(--success);">批量标记有效</button>
+                <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);">批量标记无效</button>
+            </div>
+            <div style="font-size:13px;color:#8C8C8C;" id="attendance-count">共 0 条</div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 绩效排名 ==================== -->
+<div id="sec-ranking" class="page-section">
+    <div class="card">
+        <div class="card-title">
+            <span>绩效排名 (AM通排 - 所有职级统一排名)</span>
+            <div style="display:flex;gap:8px;">
+                <select><option>2025年4月</option><option>2025年3月</option></select>
+                <button class="btn btn-sm">重新计算</button>
+                <button class="btn btn-sm">导出报表</button>
+                <button class="btn btn-sm btn-primary" onclick="showPage('promotion')">晋降级预览</button>
+            </div>
+        </div>
+        <div style="margin-bottom:12px;padding:10px;background:#e6f4ff;border-radius:6px;font-size:13px;">
+            <i class="fas fa-info-circle" style="color:var(--primary);margin-right:6px;"></i>
+            计分公式: 月度得分 = 系数A百分位排名 x 30 + 系数C百分位排名 x 70 | 系数B为底线指标(>=1)，不参与计分
+        </div>
+        <table class="data-table">
+            <thead><tr><th>AM通排</th><th>姓名</th><th>部门</th><th>职级</th><th>系数A</th><th>底线B</th><th>系数C</th><th>月度得分</th><th>百分位</th></tr></thead>
+            <tbody id="ranking-table-body">
+                <!-- 动态 -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 晋降级管理 ==================== -->
+<div id="sec-promotion" class="page-section">
+    <div class="tab-nav">
+        <div class="tab-nav-item active" onclick="switchPromotionTab('upgrade')">晋级名单</div>
+        <div class="tab-nav-item" onclick="switchPromotionTab('warning')">绩效提升预警</div>
+        <div class="tab-nav-item" onclick="switchPromotionTab('history')">历史记录</div>
+    </div>
+    <!-- 晋级名单 -->
+    <div id="promo-upgrade" class="card">
+        <div class="card-title"><span>晋级候选人 (2025年Q1) - 前20%</span></div>
+        <div style="margin-bottom:12px;padding:10px;background:#f6ffed;border-radius:6px;font-size:13px;">
+            升级前提: 底线B>=1 + 不在低绩效 + 客诉<=1 + 不在限制晋升期 + AM通排前20%
+        </div>
+        <table class="data-table">
+            <thead><tr><th>姓名</th><th>当前职级</th><th>AM通排</th><th>底线B</th><th>低绩效</th><th>客诉</th><th>晋升限制</th><th>判定</th><th>操作</th></tr></thead>
+            <tbody>
+                <tr><td style="font-weight:600;">李强</td><td>A级</td><td>前5%</td><td><span class="badge badge-success">达标</span></td><td><span class="badge badge-success">无</span></td><td>0次</td><td><span class="badge badge-success">无</span></td><td><span class="badge badge-success">全部满足</span></td><td><button class="btn btn-sm btn-primary">通过</button></td></tr>
+                <tr><td style="font-weight:600;">王芳</td><td>S1</td><td>前8%</td><td><span class="badge badge-success">达标</span></td><td><span class="badge badge-success">无</span></td><td>0次</td><td><span class="badge badge-success">无</span></td><td><span class="badge badge-success">全部满足</span></td><td><button class="btn btn-sm btn-primary">通过</button></td></tr>
+                <tr><td style="font-weight:600;">赵伟</td><td>M级</td><td>前12%</td><td><span class="badge badge-success">达标</span></td><td><span class="badge badge-success">无</span></td><td>1次</td><td><span class="badge badge-warning">3个月内</span></td><td><span class="badge badge-warning">限制晋升</span></td><td><button class="btn btn-sm" disabled>待定</button></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <!-- 绩效提升预警 -->
+    <div id="promo-warning" class="card" style="display:none;">
+        <div class="card-title"><span>绩效提升预警人员 (降级由绩效提升管理制度触发)</span></div>
+        <div style="margin-bottom:12px;padding:10px;background:#fff2f0;border-radius:6px;font-size:13px;">
+            <i class="fas fa-info-circle" style="color:var(--danger);margin-right:6px;"></i>
+            降级不由排名触发。低绩效 -> 直接降级 -> 连续2月大部总介入 -> 连续3月不胜任岗位
+        </div>
+        <table class="data-table">
+            <thead><tr><th>姓名</th><th>当前职级</th><th>连续低绩效</th><th>风险原因</th><th>辅导状态</th><th>操作</th></tr></thead>
+            <tbody>
+                <tr><td style="font-weight:600;">赵六</td><td>A级</td><td>1次</td><td><span class="badge badge-danger">已在低绩效名单</span></td><td>总监辅导中</td><td><button class="btn btn-sm">发预警</button></td></tr>
+                <tr><td style="font-weight:600;">钱七</td><td>S1</td><td><span style="color:var(--danger);font-weight:700;">2次</span></td><td><span class="badge badge-danger">连续低绩效</span></td><td>大部总介入</td><td><button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);">紧急关注</button></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <!-- 历史记录 -->
+    <div id="promo-history" class="card" style="display:none;">
+        <div class="card-title">晋降级历史</div>
+        <table class="data-table">
+            <thead><tr><th>时间</th><th>姓名</th><th>类型</th><th>原职级</th><th>新职级</th><th>原因</th></tr></thead>
+            <tbody>
+                <tr><td>2025-01</td><td>李强</td><td><span class="badge badge-success">晋级</span></td><td>S1</td><td>A</td><td>Q4排名前15%</td></tr>
+                <tr><td>2025-01</td><td>赵六</td><td><span class="badge badge-danger">降级</span></td><td>A</td><td>S1</td><td>低绩效管理制度</td></tr>
+                <tr><td>2024-10</td><td>张晓明</td><td><span class="badge badge-info">抵冲</span></td><td>S1</td><td>S1</td><td>升降级互相抵冲，职级不变</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 房源管理 ==================== -->
+<div id="sec-houses" class="page-section">
+    <div class="card">
+        <div class="card-title">
+            <span>房源管理 (NFC标签)</span>
+            <div style="display:flex;gap:8px;">
+                <input type="text" placeholder="搜索房源名称/地址..." style="padding:6px 12px;border:1px solid #d9d9d9;border-radius:6px;">
+                <button class="btn btn-primary btn-sm"><i class="fas fa-plus" style="margin-right:4px;"></i>绑定NFC</button>
+                <button class="btn btn-sm">导入</button>
+            </div>
+        </div>
+        <table class="data-table">
+            <thead><tr><th>房源名称</th><th>地址</th><th>NFC标签</th><th>状态</th><th>打卡次数</th><th>负责人</th><th>操作</th></tr></thead>
+            <tbody id="houses-table-body">
+                <!-- 动态 -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 人员管理 ==================== -->
+<div id="sec-staff" class="page-section">
+    <div class="card">
+        <div class="card-title">
+            <span>人员管理</span>
+            <div style="display:flex;gap:8px;">
+                <select><option>全部部门</option><option>静安一部</option><option>徐汇二部</option></select>
+                <select><option>全部职级</option><option>S1</option><option>A</option><option>M</option></select>
+                <input type="text" placeholder="搜索姓名..." style="padding:6px 12px;border:1px solid #d9d9d9;border-radius:6px;">
+                <button class="btn btn-primary btn-sm">查询</button>
+            </div>
+        </div>
+        <table class="data-table">
+            <thead><tr><th>姓名</th><th>职级</th><th>部门</th><th>入职日期</th><th>绑定设备</th><th>本月系数A</th><th>底线B</th><th>系数C</th><th>状态</th></tr></thead>
+            <tbody>
+                <tr><td style="font-weight:600;">张晓明</td><td>S1</td><td>静安一部</td><td>2024-06-15</td><td>iPhone 15 Pro</td><td>0.85</td><td><span class="badge badge-success">达标</span></td><td>0.88</td><td><span class="badge badge-success">正常</span></td></tr>
+                <tr><td style="font-weight:600;">李华</td><td>A</td><td>徐汇二部</td><td>2024-03-01</td><td>iPhone 14</td><td>0.92</td><td><span class="badge badge-success">达标</span></td><td>0.90</td><td><span class="badge badge-success">正常</span></td></tr>
+                <tr><td style="font-weight:600;">王强</td><td>M</td><td>浦东三部</td><td>2023-11-20</td><td>Xiaomi 14</td><td>0.68</td><td><span class="badge badge-danger">0.85</span></td><td>0.72</td><td><span class="badge badge-warning">低绩效预警</span></td></tr>
+                <tr><td style="font-weight:600;">陈静</td><td>S1</td><td>长宁一部</td><td>2025-02-01</td><td>iPhone 15</td><td>0.78</td><td><span class="badge badge-success">达标</span></td><td>0.81</td><td><span class="badge badge-info">新入职(只升不降)</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 异常审核 ==================== -->
+<div id="sec-anomalies" class="page-section">
+    <div class="card">
+        <div class="card-title">
+            <span>异常记录审核</span>
+            <div style="display:flex;gap:8px;">
+                <select><option>全部状态</option><option>待审核</option><option>已处理</option></select>
+                <select><option>全部类型</option><option>GPS偏差</option><option>短时打卡</option><option>重复打卡</option></select>
+                <button class="btn btn-primary btn-sm">查询</button>
+            </div>
+        </div>
+        <table class="data-table">
+            <thead><tr><th>时间</th><th>姓名</th><th>打卡类型</th><th>房源</th><th>异常类型</th><th>详情</th><th>质量分</th><th>申诉</th><th>操作</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td>04-03 14:20</td><td style="font-weight:600;">李华</td><td>带看</td><td>徐家汇花园</td>
+                    <td><span class="badge badge-warning">GPS偏差</span></td><td>偏差65米 + 停留5分钟</td><td style="color:var(--warning);font-weight:600;">65</td>
+                    <td><span class="badge badge-info">已申诉</span><br><span style="font-size:11px;color:#8C8C8C;">客户临时有事</span></td>
+                    <td><button class="btn btn-sm" style="color:var(--success);border-color:var(--success);">标记有效</button> <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);">标记无效</button></td>
+                </tr>
+                <tr>
+                    <td>04-03 16:45</td><td style="font-weight:600;">王强</td><td>巡检</td><td>浦东新苑</td>
+                    <td><span class="badge badge-danger">GPS偏差</span></td><td>偏差120米</td><td style="color:var(--danger);font-weight:600;">40</td>
+                    <td><span style="color:#8C8C8C;">未申诉</span></td>
+                    <td><button class="btn btn-sm" style="color:var(--success);border-color:var(--success);">标记有效</button> <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);">标记无效</button></td>
+                </tr>
+                <tr>
+                    <td>04-03 02:30</td><td style="font-weight:600;">张某</td><td>带看</td><td>静安寺公寓</td>
+                    <td><span class="badge badge-danger">深夜打卡</span></td><td>凌晨2:30打卡</td><td style="color:var(--danger);font-weight:600;">30</td>
+                    <td><span style="color:#8C8C8C;">未申诉</span></td>
+                    <td><button class="btn btn-sm" style="color:var(--success);border-color:var(--success);">标记有效</button> <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);">标记无效</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 报表中心 ==================== -->
+<div id="sec-reports" class="page-section">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
+        <div class="card" style="cursor:pointer;text-align:center;">
+            <i class="fas fa-calendar-check" style="font-size:32px;color:var(--primary);margin-bottom:12px;"></i>
+            <div style="font-weight:600;">月度考勤报表</div>
+            <div style="font-size:12px;color:#8C8C8C;margin-top:4px;">考勤统计、异常汇总</div>
+            <button class="btn btn-sm btn-primary" style="margin-top:12px;">生成报表</button>
+        </div>
+        <div class="card" style="cursor:pointer;text-align:center;">
+            <i class="fas fa-chart-line" style="font-size:32px;color:var(--success);margin-bottom:12px;"></i>
+            <div style="font-weight:600;">绩效分析报表</div>
+            <div style="font-size:12px;color:#8C8C8C;margin-top:4px;">系数A/B/C、排名趋势</div>
+            <button class="btn btn-sm btn-primary" style="margin-top:12px;">生成报表</button>
+        </div>
+        <div class="card" style="cursor:pointer;text-align:center;">
+            <i class="fas fa-user-friends" style="font-size:32px;color:#722ed1;margin-bottom:12px;"></i>
+            <div style="font-weight:600;">晋降级报表</div>
+            <div style="font-size:12px;color:#8C8C8C;margin-top:4px;">季度晋降级结果</div>
+            <button class="btn btn-sm btn-primary" style="margin-top:12px;">生成报表</button>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">历史报表</div>
+        <table class="data-table">
+            <thead><tr><th>报表名称</th><th>类型</th><th>生成时间</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+                <tr><td>2025年3月考勤报表</td><td>考勤</td><td>2025-04-01 03:00</td><td><span class="badge badge-success">已生成</span></td><td><button class="btn btn-sm">下载</button></td></tr>
+                <tr><td>2025年Q1绩效分析</td><td>绩效</td><td>2025-04-01 04:00</td><td><span class="badge badge-success">已生成</span></td><td><button class="btn btn-sm">下载</button></td></tr>
+                <tr><td>2025年Q1晋降级报表</td><td>晋降级</td><td>2025-04-02 10:00</td><td><span class="badge badge-success">已生成</span></td><td><button class="btn btn-sm">下载</button></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 系统配置 ==================== -->
+<div id="sec-settings" class="page-section">
+    <div class="card">
+        <div class="card-title">考核规则配置</div>
+        <div class="config-item">
+            <div><div class="config-label">系数A目标值 (按职级)</div><div class="config-desc">月度带看目标</div></div>
+            <div style="display:flex;gap:12px;align-items:center;font-size:13px;">
+                S1: <input type="number" value="8" class="config-input" style="width:60px;"> 套
+                A: <input type="number" value="12" class="config-input" style="width:60px;"> 套
+                M: <input type="number" value="15" class="config-input" style="width:60px;"> 套
+            </div>
+        </div>
+        <div class="config-item">
+            <div><div class="config-label">验证通过率阈值</div><div class="config-desc">低于此值系数A打5折</div></div>
+            <div><input type="number" value="70" class="config-input"> %</div>
+        </div>
+        <div class="config-item">
+            <div><div class="config-label">GPS距离阈值</div><div class="config-desc">打卡位置与NFC标签的最大允许距离</div></div>
+            <div style="display:flex;gap:12px;align-items:center;font-size:13px;">
+                警告: <input type="number" value="100" class="config-input" style="width:80px;"> 米
+                阻断: <input type="number" value="500" class="config-input" style="width:80px;"> 米
+            </div>
+        </div>
+        <div class="config-item">
+            <div><div class="config-label">最短带看时长</div><div class="config-desc">低于此时长标记异常</div></div>
+            <div><input type="number" value="10" class="config-input"> 分钟</div>
+        </div>
+        <div class="config-item">
+            <div><div class="config-label">Office在岗时长要求</div><div class="config-desc">每日最低在岗时长</div></div>
+            <div><input type="number" value="6" class="config-input"> 小时/天</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">异常检测规则</div>
+        <div class="config-item"><div><div class="config-label">GPS偏差 > 500米</div></div><div><span class="badge badge-danger">阻断打卡</span></div></div>
+        <div class="config-item"><div><div class="config-label">GPS偏差 100-500米</div></div><div><span class="badge badge-warning">要求备注</span></div></div>
+        <div class="config-item"><div><div class="config-label">停留 < 5分钟</div></div><div><span class="badge badge-warning">标记异常</span></div></div>
+        <div class="config-item"><div><div class="config-label">重复打卡 (30分钟内)</div></div><div><span class="badge badge-danger">阻断</span></div></div>
+        <div class="config-item"><div><div class="config-label">深夜打卡 (0-5点)</div></div><div><span class="badge badge-warning">要求说明</span></div></div>
+    </div>
+    <div style="text-align:center;padding:16px;">
+        <button class="btn btn-primary" style="padding:10px 40px;">保存配置</button>
+    </div>
+</div>
+
+        </div><!-- /content -->
+    </div><!-- /main -->
+</div><!-- /layout -->
+
+<script>
+const API_BASE = window.location.origin;
+
+// ===== 导航 =====
+const pageTitles = {
+    dashboard: '数据看板', attendance: '考勤管理', ranking: '绩效排名',
+    promotion: '晋降级管理', houses: '房源管理', staff: '人员管理',
+    anomalies: '异常审核', reports: '报表中心', settings: '系统配置'
+};
+
+function showPage(page) {
+    document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('sec-' + page)?.classList.add('active');
+    document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+    event?.target?.closest('.menu-item')?.classList.add('active');
+    document.getElementById('page-title').textContent = pageTitles[page] || page;
+
+    if (page === 'attendance') loadAttendanceRecords();
+    if (page === 'ranking') loadRankingData();
+    if (page === 'houses') loadHouses();
+    if (page === 'dashboard') loadDashboard();
+}
+
+// ===== 数据看板 =====
+async function loadDashboard() {
+    try {
+        const res = await fetch(`${API_BASE}/attendance/stats/today?userId=user_001`);
+        const data = await res.json();
+        document.getElementById('dash-showings').textContent = data.totalCheckIns || 0;
+    } catch(e) {}
+}
+
+// ===== 考勤管理 =====
+async function loadAttendanceRecords() {
+    try {
+        const res = await fetch(`${API_BASE}/attendance/records?userId=user_001`);
+        const records = await res.json();
+        const tbody = document.getElementById('attendance-table-body');
+        tbody.innerHTML = records.map(r => `
+            <tr>
+                <td><input type="checkbox"></td>
+                <td>${formatDateTime(r.checkInTime)}</td>
+                <td style="font-weight:600;">${r.userName || 'N/A'}</td>
+                <td>${typeLabel(r.recordType)}</td>
+                <td>${r.houseName || r.nfcTagId}</td>
+                <td>${r.distanceMeters ? r.distanceMeters.toFixed(0) + '米' : '-'}</td>
+                <td style="font-weight:600;color:${scoreColor(r.qualityScore)};">${r.qualityScore}</td>
+                <td>${statusBadge(r)}</td>
+                <td><button class="btn btn-sm">详情</button></td>
+            </tr>
+        `).join('');
+        document.getElementById('attendance-count').textContent = `共 ${records.length} 条`;
+    } catch(e) { console.error(e); }
+}
+
+// ===== 绩效排名 =====
+function loadRankingData() {
+    const mockData = [
+        { rank:1, name:'李强', dept:'徐汇二部', level:'A', a:0.95, b:true, c:0.92, score:96.2, pct:98 },
+        { rank:2, name:'王芳', dept:'静安一部', level:'M', a:0.88, b:true, c:0.90, score:94.8, pct:96 },
+        { rank:3, name:'赵伟', dept:'浦东三部', level:'S1', a:0.85, b:true, c:0.88, score:93.1, pct:95 },
+        { rank:4, name:'陈静', dept:'长宁一部', level:'A', a:0.82, b:true, c:0.86, score:91.5, pct:93 },
+        { rank:5, name:'刘洋', dept:'黄浦一部', level:'S1', a:0.80, b:true, c:0.85, score:90.2, pct:91 },
+        { rank:6, name:'孙磊', dept:'静安一部', level:'A', a:0.78, b:true, c:0.84, score:89.4, pct:89 },
+        { rank:7, name:'周敏', dept:'徐汇二部', level:'M', a:0.77, b:true, c:0.83, score:88.7, pct:88 },
+        { rank:8, name:'张晓明', dept:'静安一部', level:'S1', a:0.85, b:true, c:0.88, score:88.0, pct:86 },
+        { rank:9, name:'吴杰', dept:'浦东三部', level:'A', a:0.72, b:true, c:0.80, score:86.3, pct:84 },
+        { rank:10, name:'郑涛', dept:'长宁一部', level:'S1', a:0.70, b:false, c:0.78, score:85.1, pct:82 },
+    ];
+    const tbody = document.getElementById('ranking-table-body');
+    tbody.innerHTML = mockData.map(r => {
+        const isTop20 = r.pct >= 80;
+        return `<tr style="${r.name === '张晓明' ? 'background:#e6f4ff;' : ''}">
+            <td><span style="font-weight:700;${r.rank <= 3 ? 'color:#d48806;' : ''}">${r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank-1] : ''} ${r.rank}</span></td>
+            <td style="font-weight:600;">${r.name}</td><td>${r.dept}</td><td>${r.level}</td>
+            <td>${r.a}</td><td>${r.b ? '<span class="badge badge-success">达标</span>' : '<span class="badge badge-danger">未达标</span>'}</td>
+            <td>${r.c}</td><td style="font-weight:700;">${r.score}</td>
+            <td>${isTop20 ? '<span class="badge badge-success">前' + (100-r.pct) + '%</span>' : '<span class="badge badge-info">前' + (100-r.pct) + '%</span>'}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ===== 晋降级 Tab 切换 =====
+function switchPromotionTab(tab) {
+    ['upgrade','warning','history'].forEach(t => {
+        document.getElementById('promo-' + t).style.display = t === tab ? 'block' : 'none';
+    });
+    document.querySelectorAll('#sec-promotion .tab-nav-item').forEach((el, i) => {
+        el.classList.toggle('active', ['upgrade','warning','history'][i] === tab);
+    });
+}
+
+// ===== 房源管理 =====
+async function loadHouses() {
+    try {
+        const res = await fetch(`${API_BASE}/attendance/nfc-tags`);
+        const tags = await res.json();
+        document.getElementById('houses-table-body').innerHTML = tags.map(t => `
+            <tr>
+                <td style="font-weight:600;">${t.houseId ? '房源' + t.houseId : '门店'}</td>
+                <td>${t.address || '-'}</td>
+                <td><code style="font-size:12px;background:#f5f5f5;padding:2px 6px;border-radius:3px;">${t.tagId}</code></td>
+                <td><span class="badge ${t.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}">${t.status}</span></td>
+                <td>-</td>
+                <td>-</td>
+                <td><button class="btn btn-sm">编辑</button></td>
+            </tr>
+        `).join('');
+    } catch(e) { console.error(e); }
+}
+
+// ===== 工具函数 =====
+function formatDateTime(d) { if (!d) return '-'; const dt = new Date(d); return dt.toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'}) + ' ' + dt.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); }
+function typeLabel(t) { return {CHECK_IN:'带看',INSPECT:'巡检',SIGNING:'签约',OFFICE_IN:'上班',OFFICE_OUT:'下班'}[t] || t; }
+function scoreColor(s) { return s >= 120 ? 'var(--success)' : s >= 80 ? 'var(--primary)' : s >= 60 ? '#d48806' : 'var(--danger)'; }
+function statusBadge(r) { return r.isAnomaly ? '<span class="badge badge-danger">异常</span>' : '<span class="badge badge-success">正常</span>'; }
+
+// ===== 时钟 =====
+function updateTime() { document.getElementById('current-time').textContent = new Date().toLocaleString('zh-CN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+setInterval(updateTime, 1000); updateTime();
+
+// ===== 初始化 =====
+loadDashboard();
+</script>
+</body>
+</html>

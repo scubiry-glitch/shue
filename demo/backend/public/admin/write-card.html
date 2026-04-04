@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NFC 批量写卡工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root { --primary: #1677FF; --success: #52C41A; --warning: #FAAD14; --danger: #F5222D; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #F0F2F5; color: #262626; font-size: 14px; min-height: 100vh; }
+        .container { max-width: 480px; margin: 0 auto; padding: 0 16px; }
+        .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+        .btn { padding: 14px 24px; border-radius: 10px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.2s; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:active:not(:disabled) { background: #0958d9; }
+        .btn-success { background: var(--success); color: #fff; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-outline { background: #fff; color: var(--primary); border: 1.5px solid var(--primary); }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+        .nfc-area { width: 200px; height: 200px; border-radius: 50%; border: 3px dashed #d9d9d9; display: flex; align-items: center; justify-content: center; margin: 20px auto; position: relative; transition: all 0.3s; }
+        .nfc-area.writing { border-color: var(--primary); border-style: solid; animation: nfc-spin 1.5s linear infinite; }
+        .nfc-area.success { border-color: var(--success); border-style: solid; }
+        .nfc-area.error { border-color: var(--danger); border-style: solid; }
+        @keyframes nfc-spin { 0% { box-shadow: 0 0 0 0 rgba(22,119,255,0.4); } 70% { box-shadow: 0 0 0 15px rgba(22,119,255,0); } 100% { box-shadow: 0 0 0 0 rgba(22,119,255,0); } }
+        .progress-ring { width: 100%; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
+        .task-item { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
+        .task-item:last-child { border-bottom: none; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 10px; flex-shrink: 0; }
+        .dot-pending { background: #d9d9d9; }
+        .dot-current { background: var(--primary); animation: blink 1s infinite; }
+        .dot-done { background: var(--success); }
+        .dot-fail { background: var(--danger); }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .log-box { background: #1a1a2e; color: #a0ffa0; padding: 12px; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 200px; overflow-y: auto; line-height: 1.8; }
+        .unsupported-banner { background: #fff2f0; border: 1px solid #ffccc7; border-radius: 8px; padding: 16px; margin: 16px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<!-- 顶部栏 -->
+<div style="background:var(--primary);color:#fff;padding:16px 16px 14px;">
+    <div class="container" style="display:flex;align-items:center;padding:0;">
+        <a href="/admin/" style="color:#fff;text-decoration:none;margin-right:12px;"><i class="fas fa-arrow-left"></i></a>
+        <div>
+            <div style="font-size:17px;font-weight:700;">NFC 批量写卡工具</div>
+            <div style="font-size:12px;opacity:0.75;">Web NFC · 需使用 Chrome Android</div>
+        </div>
+    </div>
+</div>
+
+<div class="container" style="padding-top:12px;padding-bottom:30px;">
+
+    <!-- 浏览器兼容性检测 -->
+    <div id="unsupported" style="display:none;" class="unsupported-banner">
+        <i class="fas fa-exclamation-triangle" style="font-size:32px;color:var(--danger);display:block;margin-bottom:10px;"></i>
+        <div style="font-weight:600;margin-bottom:6px;">当前浏览器不支持 Web NFC</div>
+        <div style="font-size:13px;color:#8C8C8C;">
+            请使用 <b>Android 手机 Chrome 浏览器</b>（89版本以上）打开此页面。<br>
+            iOS / 桌面浏览器均不支持 Web NFC API。
+        </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div id="main-ui">
+
+        <!-- Step 1: 选择写卡来源 -->
+        <div id="step-source" class="card">
+            <div style="font-size:15px;font-weight:600;margin-bottom:12px;">
+                <i class="fas fa-list-check" style="color:var(--primary);margin-right:6px;"></i>第1步: 选择写卡清单
+            </div>
+
+            <!-- 从后台加载 -->
+            <button class="btn btn-primary" style="margin-bottom:10px;" onclick="loadFromBackend()">
+                <i class="fas fa-cloud-download-alt" style="margin-right:8px;"></i>从后台加载房源列表
+            </button>
+
+            <!-- 或手动输入 -->
+            <div style="text-align:center;color:#8C8C8C;font-size:12px;margin:8px 0;">─── 或手动添加 ───</div>
+
+            <div style="display:flex;gap:8px;">
+                <input type="text" id="manual-tag-id" placeholder="输入 tag_id (如 house_004)"
+                       style="flex:1;padding:10px 12px;border:1px solid #d9d9d9;border-radius:8px;font-size:14px;">
+                <button class="btn btn-outline" style="width:auto;padding:10px 16px;" onclick="addManualTag()">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+
+            <!-- URL 模板 -->
+            <div style="margin-top:12px;">
+                <div style="font-size:12px;color:#8C8C8C;margin-bottom:4px;">URL 模板:</div>
+                <input type="text" id="url-template" value="https://shue.example.com/h5/#checkin?tag={tag_id}"
+                       style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:8px;font-size:12px;font-family:monospace;">
+                <div style="font-size:11px;color:#8C8C8C;margin-top:4px;">{tag_id} 会被替换为实际标签ID</div>
+            </div>
+        </div>
+
+        <!-- 写卡队列 -->
+        <div id="step-queue" class="card" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <div style="font-size:15px;font-weight:600;">
+                    <i class="fas fa-tasks" style="color:var(--primary);margin-right:6px;"></i>写卡队列
+                </div>
+                <div style="font-size:13px;">
+                    <span style="color:var(--success);font-weight:600;" id="done-count">0</span> /
+                    <span id="total-count">0</span> 张
+                </div>
+            </div>
+
+            <!-- 进度条 -->
+            <div class="progress-ring" style="margin-bottom:12px;">
+                <div class="progress-fill" id="progress-bar" style="width:0%;"></div>
+            </div>
+
+            <!-- 任务列表 -->
+            <div id="task-list" style="max-height:240px;overflow-y:auto;">
+                <!-- 动态生成 -->
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <button class="btn btn-outline" style="font-size:14px;" onclick="clearQueue()">
+                    <i class="fas fa-trash" style="margin-right:4px;"></i>清空
+                </button>
+                <button class="btn btn-primary" style="font-size:14px;" id="btn-start" onclick="startWriting()">
+                    <i class="fas fa-play" style="margin-right:4px;"></i>开始写卡
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: 写卡操作区 -->
+        <div id="step-write" class="card" style="display:none;">
+            <div style="font-size:15px;font-weight:600;margin-bottom:6px;text-align:center;">
+                <i class="fas fa-wifi" style="color:var(--primary);margin-right:6px;"></i>正在写卡
+            </div>
+
+            <!-- 当前写入信息 -->
+            <div style="text-align:center;margin-bottom:8px;">
+                <div style="font-size:13px;color:#8C8C8C;">当前: <span id="current-index">1</span> / <span id="current-total">10</span></div>
+                <div style="font-size:16px;font-weight:700;color:var(--primary);margin-top:4px;" id="current-tag-id">house_001_shanghai</div>
+                <div style="font-size:11px;color:#8C8C8C;margin-top:2px;word-break:break-all;font-family:monospace;" id="current-url"></div>
+            </div>
+
+            <!-- NFC 感应区 -->
+            <div class="nfc-area" id="nfc-area">
+                <div style="text-align:center;" id="nfc-hint">
+                    <i class="fas fa-mobile-alt" style="font-size:36px;color:var(--primary);"></i>
+                    <div style="font-size:13px;color:#8C8C8C;margin-top:8px;">请将白卡<br>贴近手机背面</div>
+                </div>
+            </div>
+
+            <!-- 状态提示 -->
+            <div id="write-status" style="text-align:center;font-size:14px;font-weight:600;margin-bottom:12px;min-height:24px;"></div>
+
+            <!-- 操作按钮 -->
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-outline" style="font-size:14px;" onclick="skipCurrent()">
+                    <i class="fas fa-forward" style="margin-right:4px;"></i>跳过
+                </button>
+                <button class="btn btn-danger" style="font-size:14px;" onclick="stopWriting()">
+                    <i class="fas fa-stop" style="margin-right:4px;"></i>停止
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 3: 完成报告 -->
+        <div id="step-result" class="card" style="display:none;">
+            <div style="text-align:center;margin-bottom:16px;">
+                <i class="fas fa-check-circle" style="font-size:48px;color:var(--success);"></i>
+                <div style="font-size:18px;font-weight:700;margin-top:10px;">写卡完成</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+                <div style="text-align:center;padding:12px;background:#f6ffed;border-radius:8px;">
+                    <div style="font-size:24px;font-weight:700;color:var(--success);" id="result-success">0</div>
+                    <div style="font-size:12px;color:#8C8C8C;">成功</div>
+                </div>
+                <div style="text-align:center;padding:12px;background:#fff2f0;border-radius:8px;">
+                    <div style="font-size:24px;font-weight:700;color:var(--danger);" id="result-fail">0</div>
+                    <div style="font-size:12px;color:#8C8C8C;">失败</div>
+                </div>
+                <div style="text-align:center;padding:12px;background:#e6f4ff;border-radius:8px;">
+                    <div style="font-size:24px;font-weight:700;color:var(--primary);" id="result-skip">0</div>
+                    <div style="font-size:12px;color:#8C8C8C;">跳过</div>
+                </div>
+            </div>
+
+            <!-- 日志 -->
+            <div class="log-box" id="log-box"></div>
+
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <button class="btn btn-outline" style="font-size:14px;" onclick="exportLog()">
+                    <i class="fas fa-download" style="margin-right:4px;"></i>导出日志
+                </button>
+                <button class="btn btn-primary" style="font-size:14px;" onclick="resetAll()">
+                    <i class="fas fa-redo" style="margin-right:4px;"></i>再写一批
+                </button>
+            </div>
+        </div>
+
+    </div><!-- /main-ui -->
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+
+// ===== 状态 =====
+let queue = [];          // [{tagId, url, status:'pending'|'writing'|'done'|'fail'|'skip'}]
+let currentIdx = -1;
+let isWriting = false;
+let ndefReader = null;
+let ndefWriter = null;
+let logs = [];
+let stats = { success: 0, fail: 0, skip: 0 };
+
+// ===== 兼容性检测 =====
+function checkSupport() {
+    if (!('NDEFReader' in window)) {
+        document.getElementById('unsupported').style.display = 'block';
+        document.getElementById('main-ui').style.opacity = '0.3';
+        document.getElementById('main-ui').style.pointerEvents = 'none';
+        return false;
+    }
+    return true;
+}
+
+// ===== 从后台加载房源 =====
+async function loadFromBackend() {
+    try {
+        const res = await fetch(`${API_BASE}/attendance/nfc-tags`);
+        const tags = await res.json();
+        if (!tags.length) {
+            // 初始化演示数据
+            await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
+            const retry = await fetch(`${API_BASE}/attendance/nfc-tags`);
+            const retryTags = await retry.json();
+            retryTags.forEach(t => addToQueue(t.tagId));
+        } else {
+            tags.forEach(t => addToQueue(t.tagId));
+        }
+        showQueue();
+    } catch (e) {
+        alert('加载失败: ' + e.message);
+    }
+}
+
+// ===== 手动添加 =====
+function addManualTag() {
+    const input = document.getElementById('manual-tag-id');
+    const tagId = input.value.trim();
+    if (!tagId) return;
+    if (queue.some(q => q.tagId === tagId)) {
+        alert('该 tag_id 已在队列中');
+        return;
+    }
+    addToQueue(tagId);
+    input.value = '';
+    showQueue();
+}
+
+// ===== 队列管理 =====
+function addToQueue(tagId) {
+    const template = document.getElementById('url-template').value;
+    const url = template.replace('{tag_id}', tagId);
+    queue.push({ tagId, url, status: 'pending' });
+}
+
+function showQueue() {
+    const section = document.getElementById('step-queue');
+    section.style.display = 'block';
+    renderQueue();
+}
+
+function renderQueue() {
+    document.getElementById('total-count').textContent = queue.length;
+    document.getElementById('done-count').textContent = queue.filter(q => q.status === 'done').length;
+
+    const doneCount = queue.filter(q => q.status === 'done').length;
+    const pct = queue.length > 0 ? (doneCount / queue.length * 100) : 0;
+    document.getElementById('progress-bar').style.width = pct + '%';
+
+    const list = document.getElementById('task-list');
+    list.innerHTML = queue.map((q, i) => {
+        const dotClass = { pending: 'dot-pending', writing: 'dot-current', done: 'dot-done', fail: 'dot-fail', skip: 'dot-pending' }[q.status];
+        const statusText = { pending: '', writing: '写入中...', done: '已完成', fail: '失败', skip: '已跳过' }[q.status];
+        const statusColor = { pending: '#8C8C8C', writing: 'var(--primary)', done: 'var(--success)', fail: 'var(--danger)', skip: '#8C8C8C' }[q.status];
+        return `<div class="task-item">
+            <div class="status-dot ${dotClass}"></div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${q.tagId}</div>
+                <div style="font-size:11px;color:#8C8C8C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;">${q.url}</div>
+            </div>
+            <div style="font-size:12px;color:${statusColor};white-space:nowrap;margin-left:8px;">${statusText}</div>
+        </div>`;
+    }).join('');
+
+    // 滚动到当前项
+    if (currentIdx >= 0) {
+        const items = list.querySelectorAll('.task-item');
+        if (items[currentIdx]) items[currentIdx].scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function clearQueue() {
+    if (isWriting) return;
+    queue = [];
+    document.getElementById('step-queue').style.display = 'none';
+}
+
+// ===== 写卡核心逻辑 =====
+async function startWriting() {
+    if (queue.length === 0) return;
+    if (!checkSupport()) return;
+
+    isWriting = true;
+    stats = { success: 0, fail: 0, skip: 0 };
+    logs = [];
+    currentIdx = 0;
+
+    document.getElementById('step-source').style.display = 'none';
+    document.getElementById('step-write').style.display = 'block';
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('current-total').textContent = queue.length;
+
+    await writeNext();
+}
+
+async function writeNext() {
+    // 找到下一个 pending
+    while (currentIdx < queue.length && queue[currentIdx].status !== 'pending') {
+        currentIdx++;
+    }
+
+    if (currentIdx >= queue.length) {
+        finishWriting();
+        return;
+    }
+
+    const task = queue[currentIdx];
+    task.status = 'writing';
+    renderQueue();
+
+    document.getElementById('current-index').textContent = currentIdx + 1;
+    document.getElementById('current-tag-id').textContent = task.tagId;
+    document.getElementById('current-url').textContent = task.url;
+
+    setNfcStatus('waiting');
+    addLog(`[${currentIdx + 1}/${queue.length}] 等待写入: ${task.tagId}`);
+
+    try {
+        const ndef = new NDEFReader();
+
+        // 等待用户贴卡
+        addLog('  → 请将白卡贴近手机...');
+
+        await ndef.write({
+            records: [{ recordType: "url", data: task.url }]
+        });
+
+        // 写入成功
+        task.status = 'done';
+        stats.success++;
+        setNfcStatus('success');
+        addLog(`  ✓ 写入成功! URL: ${task.url}`);
+
+        // 短暂停留展示成功状态
+        await sleep(800);
+
+        // 验证读取
+        addLog('  → 验证中...');
+        try {
+            ndef.addEventListener("reading", ({ message }) => {
+                for (const record of message.records) {
+                    if (record.recordType === "url") {
+                        const decoder = new TextDecoder();
+                        const readUrl = decoder.decode(record.data);
+                        if (readUrl.includes(task.tagId)) {
+                            addLog(`  ✓ 验证通过`);
+                        }
+                    }
+                }
+            }, { once: true });
+            await ndef.scan();
+            await sleep(1500);
+        } catch (e) {
+            addLog(`  ⚠ 自动验证跳过 (请手动确认)`);
+        }
+
+        // 自动下一张
+        currentIdx++;
+        renderQueue();
+        await sleep(300);
+        await writeNext();
+
+    } catch (e) {
+        if (e.name === 'AbortError' || !isWriting) {
+            // 用户停止
+            return;
+        }
+        task.status = 'fail';
+        stats.fail++;
+        setNfcStatus('error');
+        addLog(`  ✗ 写入失败: ${e.message}`);
+
+        // 失败后等待用户操作（换卡重试或跳过）
+        document.getElementById('write-status').innerHTML =
+            `<span style="color:var(--danger);">写入失败</span> -
+             <span style="color:var(--primary);cursor:pointer;text-decoration:underline;" onclick="retryCurrent()">重试</span> 或点击"跳过"`;
+    }
+}
+
+function retryCurrent() {
+    if (currentIdx < queue.length) {
+        queue[currentIdx].status = 'pending';
+        stats.fail--;
+        writeNext();
+    }
+}
+
+function skipCurrent() {
+    if (currentIdx < queue.length) {
+        if (queue[currentIdx].status === 'writing' || queue[currentIdx].status === 'fail') {
+            queue[currentIdx].status = 'skip';
+            stats.skip++;
+            addLog(`  ⊘ 已跳过: ${queue[currentIdx].tagId}`);
+        }
+        currentIdx++;
+        renderQueue();
+        writeNext();
+    }
+}
+
+function stopWriting() {
+    isWriting = false;
+    finishWriting();
+}
+
+function finishWriting() {
+    isWriting = false;
+    document.getElementById('step-write').style.display = 'none';
+    document.getElementById('step-result').style.display = 'block';
+
+    document.getElementById('result-success').textContent = stats.success;
+    document.getElementById('result-fail').textContent = stats.fail;
+    document.getElementById('result-skip').textContent = stats.skip;
+
+    addLog('');
+    addLog(`===== 写卡完成 =====`);
+    addLog(`成功: ${stats.success}  失败: ${stats.fail}  跳过: ${stats.skip}`);
+    addLog(`时间: ${new Date().toLocaleString('zh-CN')}`);
+
+    document.getElementById('log-box').innerHTML = logs.map(l => {
+        if (l.includes('✓')) return `<div style="color:#a0ffa0;">${esc(l)}</div>`;
+        if (l.includes('✗')) return `<div style="color:#ffa0a0;">${esc(l)}</div>`;
+        if (l.includes('⊘')) return `<div style="color:#a0a0a0;">${esc(l)}</div>`;
+        if (l.includes('=====')) return `<div style="color:#ffd700;font-weight:bold;">${esc(l)}</div>`;
+        return `<div>${esc(l)}</div>`;
+    }).join('');
+
+    // 滚到底部
+    const logBox = document.getElementById('log-box');
+    logBox.scrollTop = logBox.scrollHeight;
+
+    // 上报写卡结果到后台
+    reportResults();
+}
+
+// ===== 上报结果 =====
+async function reportResults() {
+    try {
+        const results = queue.map(q => ({
+            tagId: q.tagId,
+            url: q.url,
+            status: q.status,
+            writtenAt: q.status === 'done' ? new Date().toISOString() : null,
+        }));
+        await fetch(`${API_BASE}/attendance/nfc-tags/write-report`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ results, stats, timestamp: new Date().toISOString() }),
+        });
+    } catch (e) {
+        // 上报失败不影响主流程
+        console.warn('上报写卡结果失败', e);
+    }
+}
+
+// ===== 导出日志 =====
+function exportLog() {
+    const content = logs.join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nfc-write-log-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ===== 重新开始 =====
+function resetAll() {
+    queue = [];
+    currentIdx = -1;
+    isWriting = false;
+    logs = [];
+    stats = { success: 0, fail: 0, skip: 0 };
+
+    document.getElementById('step-source').style.display = 'block';
+    document.getElementById('step-queue').style.display = 'none';
+    document.getElementById('step-write').style.display = 'none';
+    document.getElementById('step-result').style.display = 'none';
+    document.getElementById('btn-start').disabled = false;
+}
+
+// ===== UI 辅助 =====
+function setNfcStatus(status) {
+    const area = document.getElementById('nfc-area');
+    const hint = document.getElementById('nfc-hint');
+    const statusEl = document.getElementById('write-status');
+
+    area.className = 'nfc-area';
+
+    if (status === 'waiting') {
+        hint.innerHTML = '<i class="fas fa-mobile-alt" style="font-size:36px;color:var(--primary);"></i><div style="font-size:13px;color:#8C8C8C;margin-top:8px;">请将白卡<br>贴近手机背面</div>';
+        statusEl.innerHTML = '<span style="color:var(--primary);">等待感应...</span>';
+    } else if (status === 'writing') {
+        area.classList.add('writing');
+        hint.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:36px;color:var(--primary);"></i><div style="font-size:13px;color:var(--primary);margin-top:8px;">写入中...</div>';
+        statusEl.innerHTML = '<span style="color:var(--primary);">正在写入...</span>';
+    } else if (status === 'success') {
+        area.classList.add('success');
+        hint.innerHTML = '<i class="fas fa-check" style="font-size:48px;color:var(--success);"></i><div style="font-size:13px;color:var(--success);margin-top:8px;font-weight:600;">写入成功!</div>';
+        statusEl.innerHTML = '<span style="color:var(--success);">✓ 写入成功，请换下一张卡</span>';
+    } else if (status === 'error') {
+        area.classList.add('error');
+        hint.innerHTML = '<i class="fas fa-times" style="font-size:48px;color:var(--danger);"></i><div style="font-size:13px;color:var(--danger);margin-top:8px;font-weight:600;">写入失败</div>';
+    }
+}
+
+function addLog(msg) {
+    logs.push(msg);
+}
+
+function esc(s) {
+    return s.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+
+// ===== 键盘快捷键 =====
+document.addEventListener('keydown', (e) => {
+    if (!isWriting) return;
+    if (e.key === 's' || e.key === 'S') skipCurrent();
+    if (e.key === 'Escape') stopWriting();
+    if (e.key === 'r' || e.key === 'R') retryCurrent();
+});
+
+// ===== 初始化 =====
+checkSupport();
+</script>
+</body>
+</html>

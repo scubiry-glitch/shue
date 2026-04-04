@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC考勤系统 - 租务管家</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .card { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        .btn-primary { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(34,197,94,0.4); }
+        .pulse-ring { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34,197,94,0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 20px rgba(34,197,94,0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+        }
+        .record-item { transition: all 0.3s ease; }
+        .record-item:hover { transform: translateX(5px); }
+        .score-excellent { color: #22c55e; }
+        .score-good { color: #3b82f6; }
+        .score-warning { color: #f59e0b; }
+        .score-bad { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- 头部 -->
+    <header class="gradient-bg text-white">
+        <div class="container mx-auto px-4 py-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-wifi text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold">NFC考勤系统</h1>
+                        <p class="text-sm text-white/70">租务管家 Demo</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-sm"><i class="fas fa-user mr-2"></i>测试用户</span>
+                    <a href="/api-docs" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm transition">
+                        <i class="fas fa-code mr-2"></i>API文档
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container mx-auto px-4 py-6">
+        <!-- 今日统计 -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="card p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-500 text-sm">今日打卡</span>
+                    <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-fingerprint text-blue-600"></i>
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-gray-800" id="stat-total">-</div>
+                <div class="text-xs text-gray-400 mt-1">次打卡记录</div>
+            </div>
+            <div class="card p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-500 text-sm">验证通过</span>
+                    <div class="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-check text-green-600"></i>
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-green-600" id="stat-verified">-</div>
+                <div class="text-xs text-gray-400 mt-1">NFC验证成功</div>
+            </div>
+            <div class="card p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-500 text-sm">平均质量</span>
+                    <div class="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-star text-purple-600"></i>
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-purple-600" id="stat-score">-</div>
+                <div class="text-xs text-gray-400 mt-1">质量评分</div>
+            </div>
+            <div class="card p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-500 text-sm">异常记录</span>
+                    <div class="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle text-red-600"></i>
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-red-600" id="stat-anomaly">-</div>
+                <div class="text-xs text-gray-400 mt-1">需关注</div>
+            </div>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-6">
+            <!-- 左侧：打卡按钮 -->
+            <div class="md:col-span-1">
+                <div class="card p-6 mb-6">
+                    <h3 class="font-bold text-gray-800 mb-4 flex items-center">
+                        <i class="fas fa-mobile-alt mr-2 text-blue-600"></i>模拟打卡
+                    </h3>
+                    <button onclick="simulateCheckIn()" id="checkin-btn" class="btn-primary w-full py-6 rounded-2xl text-white font-bold text-lg transition relative overflow-hidden group">
+                        <div class="absolute inset-0 pulse-ring rounded-2xl"></div>
+                        <div class="relative flex flex-col items-center">
+                            <i class="fas fa-wifi text-3xl mb-2"></i>
+                            <span>模拟 NFC 打卡</span>
+                            <span class="text-xs font-normal opacity-80 mt-1">点击模拟靠近NFC标签</span>
+                        </div>
+                    </button>
+                    <div class="mt-4 text-xs text-gray-500 text-center">
+                        设备ID: <span id="device-id" class="font-mono text-gray-700"></span>
+                    </div>
+                </div>
+
+                <div class="card p-4">
+                    <h3 class="font-bold text-gray-800 mb-3 flex items-center text-sm">
+                        <i class="fas fa-map-marker-alt mr-2 text-red-500"></i>可用NFC标签
+                    </h3>
+                    <div id="nfc-tags" class="space-y-2">
+                        <div class="text-sm text-gray-400">加载中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：打卡记录 -->
+            <div class="md:col-span-2">
+                <div class="card p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-bold text-gray-800 flex items-center">
+                            <i class="fas fa-history mr-2 text-blue-600"></i>今日打卡记录
+                        </h3>
+                        <button onclick="loadData()" class="text-blue-600 hover:text-blue-700 text-sm">
+                            <i class="fas fa-sync-alt mr-1"></i>刷新
+                        </button>
+                    </div>
+                    <div id="records-list" class="space-y-3">
+                        <div class="text-center text-gray-400 py-8">暂无记录</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const USER_ID = 'user_web_demo';
+        const USER_NAME = '网页测试用户';
+        let deviceId = localStorage.getItem('nfc_device_id') || 'web_' + Date.now();
+        localStorage.setItem('nfc_device_id', deviceId);
+        
+        document.getElementById('device-id').textContent = deviceId.slice(0, 12) + '...';
+
+        // 格式化时间
+        function formatTime(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // 格式化日期
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+        }
+
+        // 格式化时长
+        function formatDuration(seconds) {
+            if (!seconds) return '-';
+            const mins = Math.floor(seconds / 60);
+            const hours = Math.floor(mins / 60);
+            if (hours > 0) return `${hours}小时${mins % 60}分钟`;
+            return `${mins}分钟`;
+        }
+
+        // 获取评分颜色类
+        function getScoreClass(score) {
+            if (score >= 120) return 'score-excellent';
+            if (score >= 80) return 'score-good';
+            if (score >= 60) return 'score-warning';
+            return 'score-bad';
+        }
+
+        // 加载统计数据
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/attendance/stats/today?userId=${USER_ID}`);
+                const data = await res.json();
+                document.getElementById('stat-total').textContent = data.totalCheckIns || 0;
+                document.getElementById('stat-verified').textContent = data.verifiedCount || 0;
+                document.getElementById('stat-anomaly').textContent = data.anomalyCount || 0;
+                document.getElementById('stat-score').textContent = data.avgQualityScore || 0;
+                document.getElementById('stat-score').className = `text-2xl font-bold ${getScoreClass(data.avgQualityScore)}`;
+            } catch (e) {
+                console.error('加载统计失败', e);
+            }
+        }
+
+        // 加载NFC标签
+        async function loadNfcTags() {
+            try {
+                const res = await fetch(`${API_BASE}/attendance/nfc-tags`);
+                const tags = await res.json();
+                const container = document.getElementById('nfc-tags');
+                container.innerHTML = tags.map(tag => `
+                    <div class="flex items-center p-2 bg-gray-50 rounded-lg text-sm">
+                        <div class="w-2 h-2 rounded-full ${tag.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-400'} mr-2"></div>
+                        <div class="flex-1 truncate">
+                            <div class="font-medium text-gray-700">${tag.tagId}</div>
+                            <div class="text-xs text-gray-400">${tag.address?.slice(0, 20) || ''}...</div>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded ${tag.tagType === 'HOUSE' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}">
+                            ${tag.tagType === 'HOUSE' ? '房源' : '门店'}
+                        </span>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('加载标签失败', e);
+            }
+        }
+
+        // 加载打卡记录
+        async function loadRecords() {
+            try {
+                const res = await fetch(`${API_BASE}/attendance/records?userId=${USER_ID}`);
+                const records = await res.json();
+                const container = document.getElementById('records-list');
+                
+                if (records.length === 0) {
+                    container.innerHTML = '<div class="text-center text-gray-400 py-8">暂无记录</div>';
+                    return;
+                }
+
+                container.innerHTML = records.slice(0, 10).map(record => `
+                    <div class="record-item p-4 border border-gray-100 rounded-xl ${record.isAnomaly ? 'bg-red-50 border-red-200' : 'bg-white'}">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="font-bold text-gray-800">${record.houseName || record.nfcTagId}</span>
+                                    ${record.isAnomaly ? '<span class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">异常</span>' : ''}
+                                </div>
+                                <div class="text-sm text-gray-500 space-y-1">
+                                    <div><i class="fas fa-clock mr-1 w-4"></i>到达: ${formatTime(record.checkInTime)} ${record.checkOutTime ? '| 离开: ' + formatTime(record.checkOutTime) : '<span class="text-orange-500">(未签退)</span>'}</div>
+                                    <div><i class="fas fa-map-marker-alt mr-1 w-4"></i>GPS偏差: ${record.distanceMeters ? record.distanceMeters.toFixed(0) : '-'} 米</div>
+                                    ${record.durationSeconds ? `<div><i class="fas fa-hourglass-half mr-1 w-4"></i>停留: ${formatDuration(record.durationSeconds)}</div>` : ''}
+                                    ${record.isAnomaly ? `<div class="text-red-500 text-xs mt-1"><i class="fas fa-exclamation-circle mr-1"></i>${record.anomalyReason}</div>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-2xl font-bold ${getScoreClass(record.qualityScore)}">${record.qualityScore}</div>
+                                <div class="text-xs text-gray-400">质量分</div>
+                                ${!record.checkOutTime ? `<button onclick="checkOut('${record.id}')" class="mt-2 text-xs bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded">签退</button>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('加载记录失败', e);
+                document.getElementById('records-list').innerHTML = '<div class="text-center text-red-400 py-8">加载失败</div>';
+            }
+        }
+
+        // 模拟打卡
+        async function simulateCheckIn() {
+            const btn = document.getElementById('checkin-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin text-2xl mb-2"></i><span>打卡中...</span>';
+
+            try {
+                // 获取可用标签
+                const tagsRes = await fetch(`${API_BASE}/attendance/nfc-tags`);
+                const tags = await tagsRes.json();
+                if (tags.length === 0) {
+                    alert('没有可用的NFC标签');
+                    return;
+                }
+                const tag = tags[Math.floor(Math.random() * tags.length)];
+
+                // 模拟GPS位置（随机偏移）
+                const offset = 0.0005; // 约50米
+                const gpsLat = tag.lat + (Math.random() - 0.5) * offset;
+                const gpsLng = tag.lng + (Math.random() - 0.5) * offset;
+
+                const res = await fetch(`${API_BASE}/attendance/checkin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        nfcTagId: tag.tagId,
+                        userId: USER_ID,
+                        userName: USER_NAME,
+                        recordType: 'CHECK_IN',
+                        gpsLat,
+                        gpsLng,
+                        gpsAccuracy: 5 + Math.random() * 15,
+                        deviceId,
+                        deviceModel: 'Web Browser'
+                    })
+                });
+
+                const data = await res.json();
+                
+                let msg = `打卡成功！\n房源: ${data.houseName || tag.tagId}\n质量评分: ${data.qualityScore}分`;
+                if (data.isAnomaly) msg += `\n⚠️ 异常: ${data.anomalyReason}`;
+                alert(msg);
+
+                loadData();
+            } catch (e) {
+                alert('打卡失败: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <div class="absolute inset-0 pulse-ring rounded-2xl"></div>
+                    <div class="relative flex flex-col items-center">
+                        <i class="fas fa-wifi text-3xl mb-2"></i>
+                        <span>模拟 NFC 打卡</span>
+                        <span class="text-xs font-normal opacity-80 mt-1">点击模拟靠近NFC标签</span>
+                    </div>
+                `;
+            }
+        }
+
+        // 签退
+        async function checkOut(recordId) {
+            if (!confirm('确认签退？')) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/attendance/checkout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recordId })
+                });
+                const data = await res.json();
+                alert(`签退成功！停留时长: ${formatDuration(data.durationSeconds)}`);
+                loadData();
+            } catch (e) {
+                alert('签退失败');
+            }
+        }
+
+        // 加载所有数据
+        function loadData() {
+            loadStats();
+            loadRecords();
+        }
+
+        // 初始化
+        loadNfcTags();
+        loadData();
+        setInterval(loadData, 10000); // 每10秒自动刷新
+    </script>
+</body>
+</html>

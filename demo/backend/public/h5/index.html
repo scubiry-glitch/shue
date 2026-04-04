@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>租务管家</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root { --primary: #1677FF; --success: #52C41A; --warning: #FAAD14; --danger: #F5222D; --bg: #F5F5F5; --text: #262626; --text-secondary: #8C8C8C; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; max-width: 480px; margin: 0 auto; min-height: 100vh; position: relative; padding-bottom: 60px; }
+        .page { display: none; min-height: calc(100vh - 60px); }
+        .page.active { display: block; }
+        .header { background: var(--primary); color: #fff; padding: 16px; padding-top: 20px; }
+        .header-back { font-size: 18px; cursor: pointer; margin-right: 12px; }
+        .card { background: #fff; border-radius: 12px; margin: 12px 16px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+        .tab-bar { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px; background: #fff; display: flex; border-top: 1px solid #eee; z-index: 100; }
+        .tab-item { flex: 1; text-align: center; padding: 8px 0; cursor: pointer; color: var(--text-secondary); font-size: 11px; transition: color 0.2s; }
+        .tab-item.active { color: var(--primary); }
+        .tab-item i { font-size: 20px; display: block; margin-bottom: 2px; }
+        .progress-bar { height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.5s ease; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+        .badge-success { background: #f6ffed; color: var(--success); }
+        .badge-warning { background: #fffbe6; color: var(--warning); }
+        .badge-danger { background: #fff2f0; color: var(--danger); }
+        .badge-info { background: #e6f4ff; color: var(--primary); }
+        .btn { padding: 12px 24px; border-radius: 8px; border: none; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.2s; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:active { background: #0958d9; }
+        .list-item { display: flex; align-items: center; padding: 14px 0; border-bottom: 1px solid #f5f5f5; cursor: pointer; }
+        .list-item:last-child { border-bottom: none; }
+        .nfc-ring { width: 180px; height: 180px; border-radius: 50%; border: 3px solid var(--primary); display: flex; align-items: center; justify-content: center; margin: 30px auto; position: relative; }
+        .nfc-ring::before { content: ''; position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 2px solid var(--primary); animation: nfc-pulse 2s infinite; opacity: 0; }
+        @keyframes nfc-pulse { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(1.4); opacity: 0; } }
+        .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .stat-box { text-align: center; padding: 12px 8px; }
+        .stat-box .value { font-size: 24px; font-weight: 700; color: var(--primary); }
+        .stat-box .label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+        .score-ring { width: 120px; height: 120px; border-radius: 50%; border: 6px solid #f0f0f0; display: flex; align-items: center; justify-content: center; flex-direction: column; margin: 0 auto; position: relative; }
+        .rank-item { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #f5f5f5; }
+        .rank-num { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; margin-right: 12px; }
+        .rank-1 { background: #FFD700; color: #fff; }
+        .rank-2 { background: #C0C0C0; color: #fff; }
+        .rank-3 { background: #CD7F32; color: #fff; }
+        .rank-other { background: #f0f0f0; color: var(--text-secondary); }
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-secondary); }
+        .empty-state i { font-size: 48px; margin-bottom: 12px; display: block; opacity: 0.3; }
+        .record-card { background: #fff; margin: 0 16px 10px; padding: 14px; border-radius: 10px; border-left: 4px solid var(--success); }
+        .record-card.anomaly { border-left-color: var(--danger); }
+        .appeal-status { padding: 4px 10px; border-radius: 12px; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+<!-- ==================== 首页/工作台 ==================== -->
+<div id="page-home" class="page active">
+    <div class="header">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;"><i class="fas fa-user"></i></div>
+                <div>
+                    <div style="font-size:16px;font-weight:600;" id="home-greeting">早安，张管家</div>
+                    <div style="font-size:12px;opacity:0.7;">S1级租务管家 | 静安一部</div>
+                </div>
+            </div>
+            <div style="cursor:pointer;position:relative;" onclick="navigate('notifications')">
+                <i class="fas fa-bell" style="font-size:20px;"></i>
+                <span style="position:absolute;top:-4px;right:-4px;width:8px;height:8px;background:var(--danger);border-radius:50%;"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 打卡入口卡片 -->
+    <div class="card" style="text-align:center;cursor:pointer;background:linear-gradient(135deg,#1677FF,#4096ff);" onclick="navigate('checkin')">
+        <div style="color:#fff;">
+            <i class="fas fa-wifi" style="font-size:32px;margin-bottom:8px;display:block;"></i>
+            <div style="font-size:18px;font-weight:700;">点击打开NFC打卡</div>
+            <div style="font-size:13px;opacity:0.8;margin-top:4px;">今日已打卡: <span id="home-checkin-count">0</span> 次</div>
+        </div>
+    </div>
+
+    <!-- 今日概况 -->
+    <div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px;">今日概况</div>
+        <div class="stat-grid">
+            <div class="stat-box"><div class="value" id="home-showing">0</div><div class="label">带看</div></div>
+            <div class="stat-box"><div class="value" id="home-inspect">0</div><div class="label">巡检</div></div>
+            <div class="stat-box"><div class="value" id="home-office">0h</div><div class="label">Office</div></div>
+        </div>
+    </div>
+
+    <!-- 本月绩效 -->
+    <div class="card" onclick="navigate('performance')" style="cursor:pointer;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <span style="font-size:14px;font-weight:600;">本月绩效 (实时)</span>
+            <i class="fas fa-chevron-right" style="color:var(--text-secondary);font-size:12px;"></i>
+        </div>
+        <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                <span>系数A: 0.85</span><span style="color:var(--text-secondary);">排名权重30</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:85%;"></div></div>
+        </div>
+        <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                <span>系数B: 1.0 <span class="badge badge-success">达标</span></span><span style="color:var(--text-secondary);">底线指标</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:100%;background:var(--success);"></div></div>
+        </div>
+        <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                <span>系数C: 0.88</span><span style="color:var(--text-secondary);">排名权重70</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:88%;"></div></div>
+        </div>
+        <div style="text-align:center;margin-top:12px;padding-top:12px;border-top:1px solid #f5f5f5;font-size:13px;">
+            <span style="color:var(--primary);font-weight:600;">AM通排: 第8 (前15%)</span>
+        </div>
+    </div>
+
+    <!-- 快捷入口 -->
+    <div class="card">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
+            <div style="cursor:pointer;" onclick="navigate('records')">
+                <div style="width:44px;height:44px;border-radius:12px;background:#e6f4ff;display:flex;align-items:center;justify-content:center;margin:0 auto 6px;"><i class="fas fa-list" style="color:var(--primary);"></i></div>
+                <div style="font-size:12px;">打卡记录</div>
+            </div>
+            <div style="cursor:pointer;" onclick="navigate('ranking')">
+                <div style="width:44px;height:44px;border-radius:12px;background:#fff7e6;display:flex;align-items:center;justify-content:center;margin:0 auto 6px;"><i class="fas fa-trophy" style="color:var(--warning);"></i></div>
+                <div style="font-size:12px;">我的排名</div>
+            </div>
+            <div style="cursor:pointer;" onclick="navigate('appeal')">
+                <div style="width:44px;height:44px;border-radius:12px;background:#f6ffed;display:flex;align-items:center;justify-content:center;margin:0 auto 6px;"><i class="fas fa-comment-dots" style="color:var(--success);"></i></div>
+                <div style="font-size:12px;">申诉</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== NFC打卡页 ==================== -->
+<div id="page-checkin" class="page">
+    <div class="header" style="display:flex;align-items:center;">
+        <i class="fas fa-arrow-left header-back" onclick="navigate('home')"></i>
+        <span style="font-size:16px;font-weight:600;">NFC打卡</span>
+        <span style="margin-left:auto;font-size:13px;cursor:pointer;">帮助</span>
+    </div>
+    <div style="text-align:center;padding:20px;">
+        <div class="nfc-ring" id="nfc-ring">
+            <div style="text-align:center;">
+                <i class="fas fa-wifi" style="font-size:40px;color:var(--primary);transform:rotate(90deg);"></i>
+                <div style="font-size:13px;color:var(--text-secondary);margin-top:8px;">请将手机靠近<br>NFC标签感应</div>
+            </div>
+        </div>
+        <button class="btn btn-primary" style="max-width:280px;margin:0 auto;" onclick="doSimulateCheckIn()">
+            <i class="fas fa-wifi" style="margin-right:8px;"></i>开始扫描
+        </button>
+    </div>
+    <div style="padding:0 16px;">
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">今日已打卡房源</div>
+        <div id="checkin-today-list">
+            <div class="empty-state"><i class="fas fa-inbox"></i>暂无打卡记录</div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 打卡记录页 ==================== -->
+<div id="page-records" class="page">
+    <div class="header" style="display:flex;align-items:center;">
+        <i class="fas fa-arrow-left header-back" onclick="navigate('home')"></i>
+        <span style="font-size:16px;font-weight:600;">打卡记录</span>
+        <span style="margin-left:auto;font-size:13px;cursor:pointer;" onclick="toggleFilter()"><i class="fas fa-filter"></i> 筛选</span>
+    </div>
+    <!-- 类型筛选 -->
+    <div style="display:flex;gap:8px;padding:12px 16px;background:#fff;overflow-x:auto;">
+        <span class="badge badge-info" style="cursor:pointer;white-space:nowrap;" data-filter="all" onclick="filterRecords('all')">全部</span>
+        <span class="badge" style="cursor:pointer;background:#f5f5f5;white-space:nowrap;" data-filter="CHECK_IN" onclick="filterRecords('CHECK_IN')">带看</span>
+        <span class="badge" style="cursor:pointer;background:#f5f5f5;white-space:nowrap;" data-filter="INSPECT" onclick="filterRecords('INSPECT')">巡检</span>
+        <span class="badge" style="cursor:pointer;background:#f5f5f5;white-space:nowrap;" data-filter="OFFICE_IN" onclick="filterRecords('OFFICE_IN')">Office</span>
+    </div>
+    <div id="records-list" style="padding:12px 0;">
+        <div class="empty-state"><i class="fas fa-inbox"></i>暂无记录</div>
+    </div>
+</div>
+
+<!-- ==================== 我的业绩页 ==================== -->
+<div id="page-performance" class="page">
+    <div class="header" style="display:flex;align-items:center;">
+        <i class="fas fa-arrow-left header-back" onclick="navigate('home')"></i>
+        <span style="font-size:16px;font-weight:600;">我的业绩</span>
+        <span style="margin-left:auto;font-size:13px;">2025年4月</span>
+    </div>
+    <!-- 总分卡片 -->
+    <div class="card" style="text-align:center;background:linear-gradient(135deg,#f0f5ff,#e6f4ff);">
+        <div class="score-ring" style="border-color:var(--primary);">
+            <div style="font-size:32px;font-weight:800;color:var(--primary);">88</div>
+            <div style="font-size:11px;color:var(--text-secondary);">月度得分</div>
+        </div>
+        <div style="margin-top:14px;">
+            <span style="font-size:14px;font-weight:600;">AM通排: 第8名</span>
+            <span class="badge badge-info" style="margin-left:8px;">前15%</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">公式: A排名x30 + C排名x70</div>
+    </div>
+
+    <!-- 系数明细 -->
+    <div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:14px;">系数明细</div>
+        <!-- 系数A -->
+        <div style="padding:12px;background:#f9fafb;border-radius:8px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;">系数A 租务量</span><span style="color:var(--primary);font-weight:700;">0.85</span>
+            </div>
+            <div class="progress-bar" style="margin-bottom:6px;"><div class="progress-fill" style="width:85%;"></div></div>
+            <div style="font-size:12px;color:var(--text-secondary);">申报带看: 10次 | 目标: 8次 | 验证通过率: 85%</div>
+        </div>
+        <!-- 系数B -->
+        <div style="padding:12px;background:#f6ffed;border-radius:8px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;">系数B 底线指标</span><span class="badge badge-success">达标 1.0</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);">考勤: 全勤 | 此项不参与计分，仅作为升级前提条件</div>
+        </div>
+        <!-- 系数C -->
+        <div style="padding:12px;background:#f9fafb;border-radius:8px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;">系数C 重点业务</span><span style="color:var(--primary);font-weight:700;">0.88</span>
+            </div>
+            <div class="progress-bar" style="margin-bottom:6px;"><div class="progress-fill" style="width:88%;"></div></div>
+            <div style="font-size:12px;color:var(--text-secondary);">巡检完成率: 95% | 签约达成率: 83%</div>
+        </div>
+    </div>
+
+    <!-- 升级条件校验 -->
+    <div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px;">升级条件校验</div>
+        <div style="font-size:13px;">
+            <div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5;">
+                <i class="fas fa-check-circle" style="color:var(--success);margin-right:10px;"></i>
+                <span>每月系数B >= 1</span>
+            </div>
+            <div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5;">
+                <i class="fas fa-check-circle" style="color:var(--success);margin-right:10px;"></i>
+                <span>季度内不在低绩效名单</span>
+            </div>
+            <div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5;">
+                <i class="fas fa-check-circle" style="color:var(--success);margin-right:10px;"></i>
+                <span>季度内有责客诉 <= 1 (当前: 0)</span>
+            </div>
+            <div style="display:flex;align-items:center;padding:8px 0;">
+                <i class="fas fa-check-circle" style="color:var(--success);margin-right:10px;"></i>
+                <span>不在限制晋升期</span>
+            </div>
+        </div>
+        <div style="margin-top:12px;padding:10px;background:#f6ffed;border-radius:8px;text-align:center;font-size:13px;color:var(--success);font-weight:600;">
+            <i class="fas fa-trophy" style="margin-right:6px;"></i>已满足全部升级前提条件
+        </div>
+    </div>
+
+    <!-- 预警 -->
+    <div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">预警信息</div>
+        <div style="padding:10px;background:#fffbe6;border-radius:8px;font-size:13px;color:#d48806;">
+            <i class="fas fa-exclamation-triangle" style="margin-right:6px;"></i>签约转化率低于目标5%，建议增加客户跟进频次
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 排名详情页 ==================== -->
+<div id="page-ranking" class="page">
+    <div class="header" style="display:flex;align-items:center;">
+        <i class="fas fa-arrow-left header-back" onclick="navigate('home')"></i>
+        <span style="font-size:16px;font-weight:600;">AM通排排名</span>
+    </div>
+    <!-- 我的排名卡片 -->
+    <div class="card" style="text-align:center;background:linear-gradient(135deg,#fff7e6,#fffbe6);">
+        <div style="font-size:48px;font-weight:800;color:#d48806;">8</div>
+        <div style="font-size:13px;color:var(--text-secondary);">AM通排 / 共56人</div>
+        <div style="margin-top:8px;">
+            <span class="badge badge-info">前15%</span>
+            <span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">月度得分 88分</span>
+        </div>
+    </div>
+    <!-- 排名列表 -->
+    <div class="card" style="padding:0;">
+        <div style="padding:14px 16px;border-bottom:1px solid #f0f0f0;font-size:14px;font-weight:600;">AM通排 (所有职级统一排名)</div>
+        <div id="ranking-list">
+            <!-- 动态生成 -->
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 消息通知页 ==================== -->
+<div id="page-notifications" class="page">
+    <div class="header" style="display:flex;align-items:center;">
+        <i class="fas fa-arrow-left header-back" onclick="navigate('home')"></i>
+        <span style="font-size:16px;font-weight:600;">消息通知</span>
+    </div>
+    <div id="notification-list" style="padding:12px 0;">
+        <!-- 动态生成 -->
+    </div>
+</div>
+
+<!-- ==================== 个人中心页 ==================== -->
+<div id="page-profile" class="page">
+    <div style="background:var(--primary);padding:30px 20px;text-align:center;color:#fff;">
+        <div style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:28px;">
+            <i class="fas fa-user"></i>
+        </div>
+        <div style="font-size:18px;font-weight:700;">张晓明</div>
+        <div style="font-size:13px;opacity:0.8;margin-top:4px;">S1级租务管家 | 静安一部</div>
+    </div>
+    <div class="card">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-secondary);">我的设备</div>
+        <div style="display:flex;align-items:center;padding:10px 0;">
+            <i class="fas fa-mobile-alt" style="font-size:20px;color:var(--primary);margin-right:12px;"></i>
+            <div style="flex:1;">
+                <div style="font-weight:600;">iPhone 15 Pro</div>
+                <div style="font-size:12px;color:var(--text-secondary);">已绑定 2025-03-01</div>
+            </div>
+            <span class="badge badge-success">已绑定</span>
+        </div>
+    </div>
+    <div class="card" style="padding:0;">
+        <div class="list-item" style="padding:14px 16px;" onclick="navigate('records')">
+            <i class="fas fa-list" style="width:24px;color:var(--primary);margin-right:12px;"></i>
+            <span style="flex:1;">打卡记录</span>
+            <i class="fas fa-chevron-right" style="color:#d9d9d9;font-size:12px;"></i>
+        </div>
+        <div class="list-item" style="padding:14px 16px;" onclick="navigate('performance')">
+            <i class="fas fa-chart-bar" style="width:24px;color:var(--primary);margin-right:12px;"></i>
+            <span style="flex:1;">我的业绩</span>
+            <i class="fas fa-chevron-right" style="color:#d9d9d9;font-size:12px;"></i>
+        </div>
+        <div class="list-item" style="padding:14px 16px;" onclick="navigate('appeal')">
+            <i class="fas fa-comment-dots" style="width:24px;color:var(--primary);margin-right:12px;"></i>
+            <span style="flex:1;">申诉记录</span>
+            <i class="fas fa-chevron-right" style="color:#d9d9d9;font-size:12px;"></i>
+        </div>
+        <div class="list-item" style="padding:14px 16px;" onclick="navigate('devices')">
+            <i class="fas fa-mobile-alt" style="width:24px;color:var(--primary);margin-right:12px;"></i>
+            <span style="flex:1;">设备管理</span>
+            <i class="fas fa-chevron-right" style="color:#d9d9d9;font-size:12px;"></i>
+        </div>
+        <div class="list-item" style="padding:14px 16px;">
+            <i class="fas fa-question-circle" style="width:24px;color:var(--primary);margin-right:12px;"></i>
+            <span style="flex:1;">帮助中心</span>
+            <i class="fas fa-chevron-right" style="color:#d9d9d9;font-size:12px;"></i>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 设备管理页 ==================== -->
+<div id="page-devices" class="page">
+    <div class="header" style="display:flex;align-items:center;">
+        <i class="fas fa-arrow-left header-back" onclick="navigate('profile')"></i>
+        <span style="font-size:16px;font-weight:600;">设备管理</span>
+    </div>
+    <div class="card">
+        <div style="display:flex;align-items:center;padding:12px 0;border-bottom:1px solid #f5f5f5;">
+            <div style="width:48px;height:48px;border-radius:12px;background:#e6f4ff;display:flex;align-items:center;justify-content:center;margin-right:14px;">
+                <i class="fas fa-mobile-alt" style="font-size:22px;color:var(--primary);"></i>
+            </div>
+            <div style="flex:1;">
+                <div style="font-weight:600;">iPhone 15 Pro</div>
+                <div style="font-size:12px;color:var(--text-secondary);">设备ID: demo_device_001</div>
+                <div style="font-size:12px;color:var(--text-secondary);">绑定时间: 2025-03-01</div>
+            </div>
+            <span class="badge badge-success">当前设备</span>
+        </div>
+        <div style="padding-top:12px;text-align:center;">
+            <button class="btn" style="background:#fff;border:1px solid #d9d9d9;color:var(--text);font-size:14px;padding:10px;">
+                <i class="fas fa-sync-alt" style="margin-right:6px;"></i>更换设备
+            </button>
+        </div>
+    </div>
+    <div style="padding:16px;font-size:12px;color:var(--text-secondary);">
+        <p>* 每位管家最多绑定1台设备</p>
+        <p>* 更换设备需主管审批</p>
+        <p>* 非绑定设备打卡将标记异常</p>
+    </div>
+</div>
+
+<!-- ==================== 申诉页面 ==================== -->
+<div id="page-appeal" class="page">
+    <div class="header" style="display:flex;align-items:center;">
+        <i class="fas fa-arrow-left header-back" onclick="navigate('home')"></i>
+        <span style="font-size:16px;font-weight:600;">异常申诉</span>
+    </div>
+    <div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px;">待申诉记录</div>
+        <div id="appeal-pending-list">
+            <!-- 动态 -->
+        </div>
+    </div>
+    <div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px;">申诉历史</div>
+        <div id="appeal-history-list">
+            <!-- 动态 -->
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 底部 Tab Bar ==================== -->
+<div class="tab-bar">
+    <div class="tab-item active" onclick="navigate('home')" data-tab="home">
+        <i class="fas fa-home"></i>首页
+    </div>
+    <div class="tab-item" onclick="navigate('checkin')" data-tab="checkin">
+        <i class="fas fa-wifi"></i>打卡
+    </div>
+    <div class="tab-item" onclick="navigate('performance')" data-tab="performance">
+        <i class="fas fa-chart-line"></i>业绩
+    </div>
+    <div class="tab-item" onclick="navigate('profile')" data-tab="profile">
+        <i class="fas fa-user"></i>我的
+    </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+const USER = { id: 'user_001', name: '张管家' };
+let currentPage = 'home';
+
+// ===== 导航 =====
+function navigate(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const el = document.getElementById('page-' + page);
+    if (el) el.classList.add('active');
+    currentPage = page;
+
+    // 更新 tab bar
+    document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+    const mainTabs = ['home','checkin','performance','profile'];
+    const tabMap = { records:'home', ranking:'performance', notifications:'home', devices:'profile', appeal:'home' };
+    const activeTab = mainTabs.includes(page) ? page : (tabMap[page] || 'home');
+    document.querySelector(`.tab-item[data-tab="${activeTab}"]`)?.classList.add('active');
+
+    // 页面初始化
+    if (page === 'records') loadRecords();
+    if (page === 'ranking') renderRanking();
+    if (page === 'notifications') renderNotifications();
+    if (page === 'appeal') renderAppeals();
+    if (page === 'checkin') loadCheckinToday();
+
+    window.scrollTo(0, 0);
+}
+
+// ===== 首页数据加载 =====
+async function loadHomeData() {
+    try {
+        const res = await fetch(`${API_BASE}/attendance/stats/today?userId=${USER.id}`);
+        const data = await res.json();
+        document.getElementById('home-checkin-count').textContent = data.totalCheckIns || 0;
+        document.getElementById('home-showing').textContent = data.verifiedCount || 0;
+        document.getElementById('home-inspect').textContent = '0';
+        document.getElementById('home-office').textContent = data.firstCheckIn ? '6h' : '0h';
+    } catch(e) { console.error(e); }
+
+    // 问候语
+    const h = new Date().getHours();
+    const greeting = h < 12 ? '早安' : h < 18 ? '下午好' : '晚上好';
+    document.getElementById('home-greeting').textContent = `${greeting}，${USER.name}`;
+}
+
+// ===== NFC打卡 =====
+async function doSimulateCheckIn() {
+    try {
+        let tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
+        if (tags.length === 0) {
+            await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
+            tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
+        }
+        const tag = tags[Math.floor(Math.random() * tags.length)];
+        const gpsLat = tag.lat + (Math.random() - 0.5) * 0.001;
+        const gpsLng = tag.lng + (Math.random() - 0.5) * 0.001;
+
+        const res = await fetch(`${API_BASE}/attendance/checkin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                nfcTagId: tag.tagId, userId: USER.id, userName: USER.name,
+                recordType: 'CHECK_IN', gpsLat, gpsLng,
+                gpsAccuracy: 5 + Math.random() * 15,
+                deviceId: 'demo_device_001', deviceModel: 'iPhone 15 Pro', photos: []
+            })
+        });
+        const data = await res.json();
+        const msg = data.isAnomaly
+            ? `打卡成功 (异常: ${data.anomalyReason})\n质量评分: ${data.qualityScore}分`
+            : `打卡成功!\n房源: ${data.houseName || tag.address}\n质量评分: ${data.qualityScore}分`;
+        alert(msg);
+        loadCheckinToday();
+        loadHomeData();
+    } catch(e) { alert('打卡失败: ' + e.message); }
+}
+
+async function loadCheckinToday() {
+    try {
+        const today = new Date().toISOString().slice(0, 10);
+        const res = await fetch(`${API_BASE}/attendance/records?userId=${USER.id}&startDate=${today}`);
+        const records = await res.json();
+        const container = document.getElementById('checkin-today-list');
+        if (!records.length) {
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i>暂无打卡记录</div>';
+            return;
+        }
+        container.innerHTML = records.slice(0, 5).map(r => `
+            <div style="display:flex;align-items:center;padding:12px;background:#fff;border-radius:8px;margin-bottom:8px;border-left:3px solid ${r.isAnomaly ? 'var(--danger)' : 'var(--success)'};">
+                <div style="flex:1;">
+                    <div style="font-weight:600;font-size:14px;">${r.houseName || r.nfcTagId}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">${formatTime(r.checkInTime)}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-weight:700;color:${getScoreColor(r.qualityScore)};">${r.qualityScore}/150</div>
+                    <div style="font-size:11px;color:var(--text-secondary);">${r.isAnomaly ? '异常' : '正常'}</div>
+                </div>
+            </div>
+        `).join('');
+    } catch(e) { console.error(e); }
+}
+
+// ===== 打卡记录 =====
+let currentFilter = 'all';
+async function loadRecords() {
+    try {
+        const res = await fetch(`${API_BASE}/attendance/records?userId=${USER.id}`);
+        let records = await res.json();
+        if (currentFilter !== 'all') records = records.filter(r => r.recordType === currentFilter);
+
+        const container = document.getElementById('records-list');
+        if (!records.length) {
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i>暂无记录</div>';
+            return;
+        }
+        container.innerHTML = records.map(r => `
+            <div class="record-card ${r.isAnomaly ? 'anomaly' : ''}">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <span style="font-weight:600;">${getTypeIcon(r.recordType)} ${r.houseName || r.nfcTagId}</span>
+                    <span style="font-weight:700;color:${getScoreColor(r.qualityScore)};">${r.qualityScore}分</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-secondary);display:flex;gap:12px;">
+                    <span><i class="fas fa-clock"></i> ${formatTime(r.checkInTime)}${r.checkOutTime ? ' - ' + formatTime(r.checkOutTime) : ''}</span>
+                    <span><i class="fas fa-map-marker-alt"></i> ${r.distanceMeters ? r.distanceMeters.toFixed(0) + 'm' : '-'}</span>
+                </div>
+                ${r.isAnomaly ? `<div style="margin-top:6px;font-size:12px;color:var(--danger);background:#fff2f0;padding:6px 10px;border-radius:6px;"><i class="fas fa-exclamation-circle"></i> ${r.anomalyReason} <span style="margin-left:8px;color:var(--primary);cursor:pointer;" onclick="navigate('appeal')">去申诉</span></div>` : ''}
+                ${!r.checkOutTime ? `<button onclick="doCheckOut('${r.id}')" style="margin-top:8px;padding:6px 16px;background:var(--warning);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">签退</button>` : ''}
+            </div>
+        `).join('');
+    } catch(e) { console.error(e); }
+}
+
+function filterRecords(type) {
+    currentFilter = type;
+    document.querySelectorAll('[data-filter]').forEach(el => {
+        el.className = el.dataset.filter === type ? 'badge badge-info' : 'badge';
+        if (el.dataset.filter !== type) el.style.background = '#f5f5f5';
+    });
+    loadRecords();
+}
+
+async function doCheckOut(recordId) {
+    try {
+        const res = await fetch(`${API_BASE}/attendance/checkout`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recordId })
+        });
+        const data = await res.json();
+        alert(`签退成功! 停留: ${formatDuration(data.durationSeconds)}`);
+        loadRecords();
+    } catch(e) { alert('签退失败'); }
+}
+
+// ===== 排名 =====
+function renderRanking() {
+    const mockRanking = [
+        { rank: 1, name: '李强', dept: '徐汇二部', level: 'A', score: 96.2 },
+        { rank: 2, name: '王芳', dept: '静安一部', level: 'M', score: 94.8 },
+        { rank: 3, name: '赵伟', dept: '浦东三部', level: 'S1', score: 93.1 },
+        { rank: 4, name: '陈静', dept: '长宁一部', level: 'A', score: 91.5 },
+        { rank: 5, name: '刘洋', dept: '黄浦一部', level: 'S1', score: 90.2 },
+        { rank: 6, name: '孙磊', dept: '静安一部', level: 'A', score: 89.4 },
+        { rank: 7, name: '周敏', dept: '徐汇二部', level: 'M', score: 88.7 },
+        { rank: 8, name: '张晓明', dept: '静安一部', level: 'S1', score: 88.0, isMe: true },
+        { rank: 9, name: '吴杰', dept: '浦东三部', level: 'A', score: 86.3 },
+        { rank: 10, name: '郑涛', dept: '长宁一部', level: 'S1', score: 85.1 },
+    ];
+    const container = document.getElementById('ranking-list');
+    container.innerHTML = mockRanking.map(r => `
+        <div class="rank-item" style="${r.isMe ? 'background:#e6f4ff;' : ''}">
+            <div class="rank-num ${r.rank <= 3 ? 'rank-' + r.rank : 'rank-other'}">${r.rank}</div>
+            <div style="flex:1;">
+                <div style="font-weight:${r.isMe ? '700' : '500'};">${r.name} ${r.isMe ? '(我)' : ''}</div>
+                <div style="font-size:12px;color:var(--text-secondary);">${r.dept} | ${r.level}级</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-weight:700;color:${r.isMe ? 'var(--primary)' : 'var(--text)'};">${r.score}</div>
+                <div style="font-size:11px;color:var(--text-secondary);">月度分</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ===== 消息通知 =====
+function renderNotifications() {
+    const notifications = [
+        { icon: 'fa-check-circle', color: 'var(--success)', title: '打卡验证通过', desc: '静安寺公寓打卡已通过验证，质量分135分', time: '10分钟前' },
+        { icon: 'fa-exclamation-triangle', color: 'var(--warning)', title: '带看目标提醒', desc: '本月带看次数还差2次达标，请加油', time: '1小时前' },
+        { icon: 'fa-trophy', color: '#d48806', title: '排名上升', desc: '您的AM通排排名上升至第8名 (前15%)', time: '今天 09:00' },
+        { icon: 'fa-info-circle', color: 'var(--primary)', title: '系统通知', desc: '4月月度绩效将于5月1日汇总计算', time: '昨天' },
+        { icon: 'fa-times-circle', color: 'var(--danger)', title: '异常打卡', desc: '徐家汇花园打卡GPS偏差65米，已标记异常', time: '昨天 14:20' },
+    ];
+    const container = document.getElementById('notification-list');
+    container.innerHTML = notifications.map(n => `
+        <div style="display:flex;padding:14px 16px;background:#fff;margin-bottom:1px;cursor:pointer;">
+            <div style="width:36px;height:36px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin-right:12px;flex-shrink:0;">
+                <i class="fas ${n.icon}" style="color:${n.color};"></i>
+            </div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:14px;">${n.title}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${n.desc}</div>
+            </div>
+            <div style="font-size:11px;color:var(--text-secondary);white-space:nowrap;margin-left:8px;">${n.time}</div>
+        </div>
+    `).join('');
+}
+
+// ===== 申诉 =====
+function renderAppeals() {
+    document.getElementById('appeal-pending-list').innerHTML = `
+        <div style="padding:12px;background:#fff2f0;border-radius:8px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;">徐家汇花园</span>
+                <span class="badge badge-danger">待申诉</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);">异常: GPS偏差65米 + 停留时间5分钟</div>
+            <div style="font-size:12px;color:var(--text-secondary);">时间: 2025-04-03 14:20</div>
+            <button style="margin-top:8px;padding:8px 20px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;">提交申诉</button>
+        </div>
+    `;
+    document.getElementById('appeal-history-list').innerHTML = `
+        <div style="padding:12px;background:#f6ffed;border-radius:8px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;">长宁区虹桥路房源</span>
+                <span class="badge badge-success">已通过</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);">原因: 客户临时改期，等待时间短</div>
+            <div style="font-size:12px;color:var(--text-secondary);">申诉时间: 2025-04-01 | 审核: 2025-04-02</div>
+        </div>
+        <div style="padding:12px;background:#fff2f0;border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;">浦东新苑</span>
+                <span class="badge badge-danger">已驳回</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);">原因: GPS定位不准</div>
+            <div style="font-size:12px;color:var(--text-secondary);">驳回理由: GPS偏差超500米，无法验证</div>
+        </div>
+    `;
+}
+
+// ===== 工具函数 =====
+function formatTime(d) { if (!d) return '-'; return new Date(d).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }); }
+function formatDuration(s) { if (!s) return '-'; const m = Math.floor(s/60); return m >= 60 ? Math.floor(m/60) + 'h' + (m%60) + 'm' : m + '分钟'; }
+function getScoreColor(s) { return s >= 120 ? 'var(--success)' : s >= 80 ? 'var(--primary)' : s >= 60 ? 'var(--warning)' : 'var(--danger)'; }
+function getTypeIcon(t) { return { CHECK_IN:'🏠', INSPECT:'🔍', SIGNING:'✍️', OFFICE_IN:'💼', OFFICE_OUT:'🏃' }[t] || '📋'; }
+
+// ===== 初始化 =====
+loadHomeData();
+</script>
+</body>
+</html>
