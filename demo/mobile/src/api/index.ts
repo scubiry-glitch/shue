@@ -1,5 +1,7 @@
-// API 服务
-const API_BASE_URL = 'http://localhost:3001';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../config';
+
+const TOKEN_KEY = '@shue_auth_token';
 
 class ApiService {
   private baseUrl: string;
@@ -8,18 +10,25 @@ class ApiService {
     this.baseUrl = API_BASE_URL;
   }
 
+  private async getToken(): Promise<string | null> {
+    return AsyncStorage.getItem(TOKEN_KEY);
+  }
+
   private async request(endpoint: string, options: RequestInit = {}) {
+    const token = await this.getToken();
     const url = `${this.baseUrl}${endpoint}`;
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
     });
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || `API Error: ${response.status}`);
     }
 
     return response.json();
@@ -70,7 +79,7 @@ class ApiService {
     return this.request('/attendance/nfc-tags');
   }
 
-  // 初始化NFC标签
+  // 初始化NFC标签（仅管理员）
   async initNfcTags() {
     return this.request('/attendance/nfc-tags/init', { method: 'POST' });
   }

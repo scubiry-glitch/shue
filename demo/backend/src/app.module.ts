@@ -10,6 +10,9 @@ import { AppealController } from './appeal/appeal.controller';
 import { RoleConfigController } from './roles/role-config.controller';
 import { StatsController } from './stats/stats.controller';
 import { AttendanceRecord } from './attendance/attendance-record.entity';
+import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
+import { User } from './users/user.entity';
 
 @Module({
   imports: [
@@ -27,10 +30,19 @@ import { AttendanceRecord } from './attendance/attendance-record.entity';
       synchronize: true,
       logging: false,
     }),
-    TypeOrmModule.forFeature([AttendanceRecord]),
+    TypeOrmModule.forFeature([AttendanceRecord, User]),
+    AuthModule,
+    UsersModule,
     AttendanceModule,
     PerformanceModule,
   ],
-  controllers: [AppController, StaffController, NotificationController, AppealController, RoleConfigController, StatsController],
+  controllers: [
+    AppController,
+    StaffController,
+    NotificationController,
+    AppealController,
+    RoleConfigController,
+    StatsController,
+  ],
 })
 export class AppModule {}

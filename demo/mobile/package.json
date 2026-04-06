@@ -17,13 +17,15 @@
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/stack": "^6.3.20",
     "@react-native-community/geolocation": "^3.1.0",
+    "@react-native-async-storage/async-storage": "^1.21.0",
     "react-native-camera": "^4.2.1",
     "react-native-gesture-handler": "^2.14.0",
     "react-native-safe-area-context": "^4.8.0",
     "react-native-screens": "^3.29.0",
     "axios": "^1.6.2",
     "dayjs": "^1.11.10",
-    "@react-native-async-storage/async-storage": "^1.21.0"
+    "@supabase/supabase-js": "^2.39.3",
+    "react-native-url-polyfill": "^2.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",

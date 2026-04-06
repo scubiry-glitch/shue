@@ -1,11 +1,15 @@
 import { Controller, Post, Get, Body, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
 import { AttendanceRecord } from './attendance-record.entity';
 import { NfcTag, TagType, TagStatus } from './nfc-tag.entity';
 import { CheckInDto, CheckOutDto, QueryRecordsDto } from './dto';
+import { Public } from '../auth/public.decorator';
+import { Roles } from '../auth/roles.decorator';
+import { UserRole } from '../users/user.entity';
 
 @ApiTags('考勤打卡')
+@ApiBearerAuth()
 @Controller('attendance')
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
@@ -50,7 +54,8 @@ export class AttendanceController {
   }
 
   @Post('nfc-tags/init')
-  @ApiOperation({ summary: '初始化NFC标签（演示用）' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '初始化NFC标签（演示用，仅管理员）' })
   async initNfcTags(): Promise<{ message: string; count: number }> {
     // 创建一些演示用的NFC标签
     const demoTags = [

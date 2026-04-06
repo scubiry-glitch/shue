@@ -1,7 +1,9 @@
 import { Controller, Get, Redirect } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Public } from './auth/public.decorator';
 
 @ApiTags('系统')
+@Public()
 @Controller()
 export class AppController {
   @Get()
