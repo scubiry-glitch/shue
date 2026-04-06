@@ -4,6 +4,7 @@ import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
 import { AttendanceRecord, RecordStatus, RecordType } from './attendance-record.entity';
 import { NfcTag, TagStatus, TagType } from './nfc-tag.entity';
+import { HouseService } from '../house/house.service';
 
 // ─── Mock 工厂 ────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,9 @@ describe('AttendanceService', () => {
     create: jest.fn(),
     save: jest.fn(),
   };
+  const mockHouseService = {
+    assertCanAccessHouse: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -88,6 +92,7 @@ describe('AttendanceService', () => {
         AttendanceService,
         { provide: getRepositoryToken(AttendanceRecord), useValue: mockRecordRepo },
         { provide: getRepositoryToken(NfcTag), useValue: mockNfcTagRepo },
+        { provide: HouseService, useValue: mockHouseService },
       ],
     }).compile();
 

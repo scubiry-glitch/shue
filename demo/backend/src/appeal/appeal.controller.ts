@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Query, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AppealService } from './appeal.service';
+import { AppealSlaService } from './appeal-sla.service';
 import { AppealStatus } from './appeal.entity';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
@@ -10,7 +11,10 @@ import { UserRole, User } from '../users/user.entity';
 @ApiBearerAuth()
 @Controller('appeals')
 export class AppealController {
-  constructor(private readonly appealService: AppealService) {}
+  constructor(
+    private readonly appealService: AppealService,
+    private readonly appealSlaService: AppealSlaService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: '获取申诉列表（普通用户只看自己，管理员可全查）' })
@@ -50,6 +54,13 @@ export class AppealController {
     @CurrentUser() reviewer: User,
   ) {
     return this.appealService.review(id, body.action, body.comment, reviewer.id);
+  }
+
+  @Get('sla/stats')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '申诉 SLA 状态（管理员）' })
+  getSlaStats() {
+    return this.appealSlaService.getSlaStats();
   }
 
   @Get('anomaly-records')

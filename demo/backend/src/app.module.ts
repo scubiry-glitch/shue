@@ -14,6 +14,7 @@ import { AppealModule } from './appeal/appeal.module';
 import { Appeal } from './appeal/appeal.entity';
 import { StaffModule } from './staff/staff.module';
 import { StatsModule } from './stats/stats.module';
+import { HouseModule } from './house/house.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { StatsModule } from './stats/stats.module';
     AppealModule,
     StaffModule,
     StatsModule,
+    HouseModule,
     PerformanceModule,
   ],
   controllers: [

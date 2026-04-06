@@ -9,6 +9,7 @@ export enum TagStatus {
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
   LOST = 'LOST',
+  SUSPENDED = 'SUSPENDED', // 暂停：房源空置/整修期间
 }
 
 @Entity('nfc_tags')
@@ -44,11 +45,19 @@ export class NfcTag {
   @Column({ name: 'address', type: 'text', nullable: true })
   address: string;
 
-  @Column({ 
-    name: 'status', 
-    type: 'enum', 
+  /** 标签有效期：到期后打卡返回「标签已过期」提示 */
+  @Column({ name: 'valid_until', type: 'date', nullable: true })
+  validUntil: string;
+
+  /** 房源状态备注（空置、装修中等） */
+  @Column({ name: 'house_status', type: 'varchar', length: 32, nullable: true })
+  houseStatus: string;
+
+  @Column({
+    name: 'status',
+    type: 'enum',
     enum: TagStatus,
-    default: TagStatus.ACTIVE 
+    default: TagStatus.ACTIVE
   })
   status: TagStatus;
 

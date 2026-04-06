@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, DeleteDateColumn } from 'typeorm';
 
 export enum RecordType {
   CHECK_IN = 'CHECK_IN',
@@ -13,6 +13,14 @@ export enum RecordStatus {
   VALID = 'VALID',
   INVALID = 'INVALID',
   SUSPECTED = 'SUSPECTED',
+}
+
+/** 打卡会话状态（状态机） */
+export enum SessionStatus {
+  OPEN = 'OPEN',           // 已签到，等待签退
+  CLOSED = 'CLOSED',       // 已正常签退
+  AUTO_CLOSED = 'AUTO_CLOSED', // 系统自动关闭（超时未签退）
+  CANCELLED = 'CANCELLED', // 异常取消
 }
 
 export enum UserRole {
@@ -133,6 +141,23 @@ export class AttendanceRecord {
     default: RecordStatus.VALID
   })
   status: RecordStatus;
+
+  /** 打卡会话状态机 */
+  @Column({
+    name: 'session_status',
+    type: 'enum',
+    enum: SessionStatus,
+    default: SessionStatus.OPEN,
+  })
+  sessionStatus: SessionStatus;
+
+  /** 自动关闭时的说明 */
+  @Column({ name: 'auto_close_reason', type: 'text', nullable: true })
+  autoCloseReason: string;
+
+  /** 软删除（保留历史） */
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deletedAt: Date;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

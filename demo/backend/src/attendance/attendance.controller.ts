@@ -67,6 +67,21 @@ export class AttendanceController {
     return this.attendanceService.getTodayStats(targetUserId);
   }
 
+  // ─── BL-6：当前在岗视图 ──────────────────────────────────────────────────
+
+  @Get('on-duty')
+  @ApiOperation({ summary: '获取当前在岗人员（有签到未签退），管理员可查全员' })
+  async getOnDuty(
+    @CurrentUser() user: User,
+    @Query('userId') queryUserId?: string,
+  ) {
+    const targetUserId =
+      user.role === UserRole.ADMIN && queryUserId ? queryUserId
+      : user.role === UserRole.ADMIN ? undefined
+      : user.id;
+    return this.attendanceService.getOnDuty(targetUserId);
+  }
+
   @Get('nfc-tags')
   @ApiOperation({ summary: '获取所有NFC标签' })
   @ApiResponse({ status: 200, description: '获取成功', type: [NfcTag] })
