@@ -1,11 +1,16 @@
 import { Controller, Post, Get, Body, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
 import { AttendanceRecord } from './attendance-record.entity';
 import { NfcTag, TagType, TagStatus } from './nfc-tag.entity';
-import { CheckInDto, CheckOutDto, QueryRecordsDto } from './dto';
+import { CheckInDto, CheckOutDto } from './dto';
+import { Public } from '../auth/public.decorator';
+import { Roles } from '../auth/roles.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { UserRole, User } from '../users/user.entity';
 
 @ApiTags('考勤打卡')
+@ApiBearerAuth()
 @Controller('attendance')
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
@@ -13,33 +18,68 @@ export class AttendanceController {
   @Post('checkin')
   @ApiOperation({ summary: 'NFC打卡签到' })
   @ApiResponse({ status: 201, description: '打卡成功', type: AttendanceRecord })
-  async checkIn(@Body() dto: CheckInDto): Promise<AttendanceRecord> {
+  async checkIn(
+    @Body() dto: CheckInDto,
+    @CurrentUser() user: User,
+  ): Promise<AttendanceRecord> {
+    // 身份强制来自 JWT，防止伪造他人打卡
+    dto.userId = user.id;
+    dto.userName = user.name;
+    if (!dto.role) dto.role = user.role;
     return this.attendanceService.checkIn(dto);
   }
 
   @Post('checkout')
   @ApiOperation({ summary: '签退' })
   @ApiResponse({ status: 200, description: '签退成功', type: AttendanceRecord })
-  async checkOut(@Body() dto: CheckOutDto): Promise<AttendanceRecord> {
-    return this.attendanceService.checkOut(dto);
+  async checkOut(
+    @Body() dto: CheckOutDto,
+    @CurrentUser() user: User,
+  ): Promise<AttendanceRecord> {
+    // 校验记录归属权
+    return this.attendanceService.checkOut(dto, user.id);
   }
 
   @Get('records')
-  @ApiOperation({ summary: '获取打卡记录' })
+  @ApiOperation({ summary: '获取打卡记录（仅返回当前登录用户数据，管理员可指定 userId）' })
   @ApiResponse({ status: 200, description: '获取成功', type: [AttendanceRecord] })
   async getRecords(
-    @Query('userId') userId: string,
+    @CurrentUser() user: User,
+    @Query('userId') queryUserId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<AttendanceRecord[]> {
-    return this.attendanceService.getUserRecords(userId, startDate, endDate);
+    // 管理员可查任意用户；普通用户只能查自己
+    const targetUserId =
+      user.role === UserRole.ADMIN && queryUserId ? queryUserId : user.id;
+    return this.attendanceService.getUserRecords(targetUserId, startDate, endDate);
   }
 
   @Get('stats/today')
   @ApiOperation({ summary: '获取今日统计' })
   @ApiResponse({ status: 200, description: '获取成功' })
-  async getTodayStats(@Query('userId') userId: string): Promise<any> {
-    return this.attendanceService.getTodayStats(userId);
+  async getTodayStats(
+    @CurrentUser() user: User,
+    @Query('userId') queryUserId?: string,
+  ): Promise<any> {
+    const targetUserId =
+      user.role === UserRole.ADMIN && queryUserId ? queryUserId : user.id;
+    return this.attendanceService.getTodayStats(targetUserId);
+  }
+
+  // ─── BL-6：当前在岗视图 ──────────────────────────────────────────────────
+
+  @Get('on-duty')
+  @ApiOperation({ summary: '获取当前在岗人员（有签到未签退），管理员可查全员' })
+  async getOnDuty(
+    @CurrentUser() user: User,
+    @Query('userId') queryUserId?: string,
+  ) {
+    const targetUserId =
+      user.role === UserRole.ADMIN && queryUserId ? queryUserId
+      : user.role === UserRole.ADMIN ? undefined
+      : user.id;
+    return this.attendanceService.getOnDuty(targetUserId);
   }
 
   @Get('nfc-tags')
@@ -50,7 +90,8 @@ export class AttendanceController {
   }
 
   @Post('nfc-tags/init')
-  @ApiOperation({ summary: '初始化NFC标签（演示用）' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '初始化NFC标签（演示用，仅管理员）' })
   async initNfcTags(): Promise<{ message: string; count: number }> {
     // 创建一些演示用的NFC标签
     const demoTags = [

@@ -1,13 +1,13 @@
 version: '3.8'
 
 services:
-  # PostgreSQL 数据库
+  # ─── PostgreSQL + PostGIS ──────────────────────────────────────────────────
   postgres:
     image: postgis/postgis:15-3.3
     container_name: nfc-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DB_PASS:-postgres}
       POSTGRES_DB: nfc_attendance
     ports:
       - "5432:5432"
@@ -20,28 +20,44 @@ services:
       timeout: 5s
       retries: 5
 
-  # 后端服务
+  # ─── NestJS 后端 ───────────────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: nfc-backend
+    env_file:
+      - ./backend/.env
     environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3010
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASS: postgres
+      DB_PASS: ${DB_PASS:-postgres}
       DB_NAME: nfc_attendance
-      NODE_ENV: development
+      AUTH_MODE: ${AUTH_MODE:-mock}
+      JWT_SECRET: ${JWT_SECRET:-shue_jwt_secret_dev}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      NFC_DOMAIN: ${NFC_DOMAIN:-nfc.meizu.life}
     ports:
-      - "3001:3001"
+      - "3010:3010"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
+      # 开发模式热重载（生产时移除此行）
       - ./backend/src:/app/src
-      - ./backend/package.json:/app/package.json
-    command: npm run start:dev
+    command: >
+      sh -c "
+        echo 'Waiting for postgres...' &&
+        npx typeorm migration:run -d dist/data-source.js &&
+        npm run start:${NODE_ENV:-dev}
+      "
+    restart: unless-stopped
 
 volumes:
   postgres_data:

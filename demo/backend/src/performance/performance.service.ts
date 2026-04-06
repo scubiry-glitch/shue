@@ -2,56 +2,56 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AttendanceRecord } from '../attendance/attendance-record.entity';
-
-// 模拟人员数据 (生产环境对接人事系统)
-const STAFF_DATA = [
-  { userId: 'user_001', name: '张晓明', level: 'S1', dept: '静安一部', deptId: 'dept_01', joinDate: '2024-06-15' },
-  { userId: 'user_002', name: '李强', level: 'A', dept: '徐汇二部', deptId: 'dept_02', joinDate: '2023-08-01' },
-  { userId: 'user_003', name: '王芳', level: 'M', dept: '静安一部', deptId: 'dept_01', joinDate: '2023-03-15' },
-  { userId: 'user_004', name: '赵伟', level: 'S1', dept: '浦东三部', deptId: 'dept_03', joinDate: '2024-01-10' },
-  { userId: 'user_005', name: '陈静', level: 'A', dept: '长宁一部', deptId: 'dept_04', joinDate: '2025-02-01' },
-  { userId: 'user_006', name: '刘洋', level: 'S1', dept: '黄浦一部', deptId: 'dept_05', joinDate: '2024-04-20' },
-  { userId: 'user_007', name: '孙磊', level: 'A', dept: '静安一部', deptId: 'dept_01', joinDate: '2023-11-01' },
-  { userId: 'user_008', name: '周敏', level: 'M', dept: '徐汇二部', deptId: 'dept_02', joinDate: '2023-05-15' },
-  { userId: 'user_009', name: '吴杰', level: 'A', dept: '浦东三部', deptId: 'dept_03', joinDate: '2024-09-01' },
-  { userId: 'user_010', name: '郑涛', level: 'S1', dept: '长宁一部', deptId: 'dept_04', joinDate: '2024-07-15' },
-];
+import { UserDailyStats } from '../stats/user-daily-stats.entity';
+import { UsersService } from '../users/users.service';
+import { User } from '../users/user.entity';
 
 // 目标值 (按职级)
 const TARGET_SHOWINGS: Record<string, number> = { S1: 8, A: 12, M: 15 };
+const INSPECTION_MONTHLY_TARGET = 20;
 
 @Injectable()
 export class PerformanceService {
   constructor(
     @InjectRepository(AttendanceRecord)
     private recordRepo: Repository<AttendanceRecord>,
+    @InjectRepository(UserDailyStats)
+    private dailyStatsRepo: Repository<UserDailyStats>,
+    private readonly usersService: UsersService,
   ) {}
 
-  // 计算系数A (基于真实打卡数据)
-  private async calculateCoefficientA(userId: string, period?: string): Promise<{
-    value: number;
-    showings: number;
-    verified: number;
-    target: number;
-    verificationRate: number;
-  }> {
-    const staff = STAFF_DATA.find(s => s.userId === userId);
-    const target = TARGET_SHOWINGS[staff?.level || 'S1'] || 8;
-
+  private getMonthRange(monthsAgo = 0): { start: Date; end: Date; period: string } {
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const year = now.getFullYear();
+    const month = now.getMonth() - monthsAgo;
+    const start = new Date(year, month, 1);
+    const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+    const d = new Date(year, month, 1);
+    const period = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return { start, end, period };
+  }
 
-    const records = await this.recordRepo.createQueryBuilder('r')
-      .where('r.userId = :userId', { userId })
-      .andWhere('r.recordType = :type', { type: 'CHECK_IN' })
-      .andWhere('r.createdAt >= :start', { start: startOfMonth })
+  // 系数A: 带看验证通过率 × 目标完成率
+  private async calculateCoefficientA(
+    user: User,
+    start: Date,
+    end: Date,
+  ): Promise<{ value: number; showings: number; verified: number; target: number; verificationRate: number }> {
+    const target = TARGET_SHOWINGS[user.level || 'S1'] || 8;
+
+    const records = await this.recordRepo
+      .createQueryBuilder('r')
+      .where('r.userId = :userId', { userId: user.id })
+      .andWhere('r.taskType = :type', { type: 'SHOWING' })
+      .andWhere('r.createdAt >= :start', { start })
+      .andWhere('r.createdAt <= :end', { end })
+      .withDeleted()
       .getMany();
 
     const showings = records.length;
     const verified = records.filter(r => r.nfcVerified && r.distanceValid !== false).length;
     const verificationRate = showings > 0 ? verified / showings : 0;
 
-    // 系数A = 验证通过率 × 目标完成率 × (通过率<70%打5折)
     const targetCompletion = Math.min(verified / target, 1);
     const rateMultiplier = verificationRate >= 0.7 ? 1.0 : 0.5;
     const value = Math.round(verificationRate * targetCompletion * rateMultiplier * 100) / 100;
@@ -59,117 +59,126 @@ export class PerformanceService {
     return { value, showings, verified, target, verificationRate: Math.round(verificationRate * 100) };
   }
 
-  // 计算系数B (底线指标)
-  private async calculateCoefficientB(userId: string): Promise<{
-    value: number;
-    qualified: boolean;
-    attendanceDays: number;
-    requiredDays: number;
-  }> {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    // 统计本月有打卡的天数
-    const result = await this.recordRepo.createQueryBuilder('r')
-      .select('COUNT(DISTINCT DATE(r.createdAt))', 'days')
-      .where('r.userId = :userId', { userId })
-      .andWhere('r.createdAt >= :start', { start: startOfMonth })
+  // 系数B: 出勤天数达标率
+  private async calculateCoefficientB(
+    userId: string,
+    start: Date,
+    end: Date,
+    isCurrentMonth: boolean,
+  ): Promise<{ value: number; qualified: boolean; attendanceDays: number; requiredDays: number }> {
+    // 从 user_daily_stats 聚合有打卡的天数
+    const result = await this.dailyStatsRepo
+      .createQueryBuilder('s')
+      .select('COUNT(*)', 'days')
+      .where('s.userId = :userId', { userId })
+      .andWhere('s.statsDate >= :start', { start: start.toISOString().slice(0, 10) })
+      .andWhere('s.statsDate <= :end', { end: end.toISOString().slice(0, 10) })
+      .andWhere('s.totalCheckIns > 0')
       .getRawOne();
 
     const attendanceDays = parseInt(result?.days || '0');
-    // 工作日估算 (简化: 当月到今天的工作日数)
-    const dayOfMonth = now.getDate();
-    const requiredDays = Math.floor(dayOfMonth * 5 / 7); // 简化估算
 
-    const value = requiredDays > 0 ? Math.round(attendanceDays / requiredDays * 100) / 100 : 1.0;
+    // 工作日估算: 当月总天数 × 5/7
+    const totalDays = isCurrentMonth ? new Date().getDate() : end.getDate();
+    const requiredDays = Math.floor(totalDays * 5 / 7);
 
+    const value = requiredDays > 0 ? Math.round((attendanceDays / requiredDays) * 100) / 100 : 1.0;
     return { value: Math.min(value, 1.5), qualified: value >= 1.0, attendanceDays, requiredDays };
   }
 
-  // 计算系数C (重点业务)
-  private async calculateCoefficientC(userId: string): Promise<{
-    value: number;
-    inspectionRate: number;
-    signingRate: number;
-  }> {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    // 巡检数
-    const inspections = await this.recordRepo.count({
-      where: { userId, recordType: 'INSPECT' as any },
-    });
-
-    // 简化: 巡检完成率和签约率基于数据推算
-    const inspectionRate = Math.min(inspections / 20, 1); // 假设月度目标20次巡检
-    const signingRate = 0.35 + Math.random() * 0.5; // 简化: 签约率从签约系统获取
-
-    const value = Math.round((inspectionRate * 0.4 + signingRate * 0.6) * 100) / 100;
-
-    return { value: Math.min(value, 1.0), inspectionRate: Math.round(inspectionRate * 100), signingRate: Math.round(signingRate * 100) };
-  }
-
-  // 获取百分位排名
-  private getPercentileRank(myScore: number, allScores: number[]): number {
-    const sorted = [...allScores].sort((a, b) => a - b);
-    const idx = sorted.findIndex(s => s >= myScore);
-    return Math.round((idx / sorted.length) * 100);
-  }
-
-  // 获取当前绩效
-  async getCurrentPerformance(userId: string) {
-    const [coeffA, coeffB, coeffC] = await Promise.all([
-      this.calculateCoefficientA(userId),
-      this.calculateCoefficientB(userId),
-      this.calculateCoefficientC(userId),
+  // 系数C: 巡检完成率 + 签约任务数
+  private async calculateCoefficientC(
+    userId: string,
+    start: Date,
+    end: Date,
+  ): Promise<{ value: number; inspectionRate: number; signingCount: number }> {
+    const [inspections, signings] = await Promise.all([
+      this.recordRepo.count({
+        where: { userId, taskType: 'INSPECTION' as any },
+      }),
+      this.recordRepo.count({
+        where: { userId, taskType: 'SIGNING' as any },
+      }),
     ]);
 
-    // 计算月度得分 (简化: 直接用系数值代替排名)
+    const inspectionRate = Math.min(inspections / INSPECTION_MONTHLY_TARGET, 1);
+    // 签约归一化: 每月签约3单视为满分
+    const signingRate = Math.min(signings / 3, 1);
+
+    const value = Math.round((inspectionRate * 0.4 + signingRate * 0.6) * 100) / 100;
+    return { value: Math.min(value, 1.0), inspectionRate: Math.round(inspectionRate * 100), signingCount: signings };
+  }
+
+  async getCurrentPerformance(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) return null;
+
+    const { start, end } = this.getMonthRange(0);
+
+    const [coeffA, coeffB, coeffC] = await Promise.all([
+      this.calculateCoefficientA(user, start, end),
+      this.calculateCoefficientB(userId, start, end, true),
+      this.calculateCoefficientC(userId, start, end),
+    ]);
+
     const monthlyScore = Math.round((coeffA.value * 30 + coeffC.value * 70) * 100) / 100;
+
+    // Ranking requires loading all staff — do a lightweight version here
+    const allStaff = await this.usersService.findAll();
+    const companyTotal = allStaff.length;
 
     return {
       userId,
-      staff: STAFF_DATA.find(s => s.userId === userId),
+      staff: {
+        name: user.name,
+        level: user.level,
+        dept: user.department,
+        joinDate: user.joinDate,
+      },
       coefficient_a: coeffA,
       coefficient_b: coeffB,
       coefficient_c: coeffC,
       monthly_score: monthlyScore,
       ranking: {
-        company_rank: 8,
-        company_total: STAFF_DATA.length,
-        percentile: 85,
-        dept_rank: 3,
-        dept_total: 12,
-        evaluation: 'MAINTAIN',
+        company_total: companyTotal,
+        // Full cross-staff ranking is computed by getRanking(); use placeholder until called
+        company_rank: null,
+        percentile: null,
+        evaluation: coeffB.qualified ? 'MAINTAIN' : 'AT_RISK',
       },
-      upgrade_probability: coeffB.qualified ? '中' : '低',
+      upgrade_probability: coeffB.qualified && coeffA.verificationRate >= 70 ? '中' : '低',
     };
   }
 
-  // 获取 AM 通排排名
   async getRanking(period?: string) {
-    const rankings = await Promise.all(
-      STAFF_DATA.map(async (staff, index) => {
-        const coeffA = await this.calculateCoefficientA(staff.userId);
-        const coeffB = await this.calculateCoefficientB(staff.userId);
-        const coeffC = await this.calculateCoefficientC(staff.userId);
-        const score = Math.round((coeffA.value * 30 + coeffC.value * 70) * 100) / 100;
+    const monthsAgo = period ? 0 : 0; // can extend to parse period string
+    const { start, end } = this.getMonthRange(monthsAgo);
+    const isCurrentMonth = monthsAgo === 0;
 
+    const allStaff = await this.usersService.findAll();
+
+    const rankings = await Promise.all(
+      allStaff.map(async user => {
+        const [coeffA, coeffB, coeffC] = await Promise.all([
+          this.calculateCoefficientA(user, start, end),
+          this.calculateCoefficientB(user.id, start, end, isCurrentMonth),
+          this.calculateCoefficientC(user.id, start, end),
+        ]);
+        const score = Math.round((coeffA.value * 30 + coeffC.value * 70) * 100) / 100;
         return {
-          userId: staff.userId,
-          name: staff.name,
-          level: staff.level,
-          dept: staff.dept,
+          userId: user.id,
+          name: user.name,
+          level: user.level,
+          dept: user.department,
           coefficient_a: coeffA.value,
           coefficient_b_qualified: coeffB.qualified,
           coefficient_b_value: coeffB.value,
           coefficient_c: coeffC.value,
           monthly_score: score,
         };
-      })
+      }),
     );
 
-    // 按月度得分排序 (AM通排)
     rankings.sort((a, b) => b.monthly_score - a.monthly_score);
 
     return rankings.map((r, i) => ({
@@ -180,71 +189,89 @@ export class PerformanceService {
     }));
   }
 
-  // 历史趋势
   async getHistory(userId: string, months: number) {
+    const user = await this.usersService.findById(userId);
+    if (!user) return [];
+
     const history = [];
     for (let i = months - 1; i >= 0; i--) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
-      const period = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const { start, end, period } = this.getMonthRange(i);
+      const isCurrentMonth = i === 0;
+
+      const [coeffA, coeffB, coeffC] = await Promise.all([
+        this.calculateCoefficientA(user, start, end),
+        this.calculateCoefficientB(userId, start, end, isCurrentMonth),
+        this.calculateCoefficientC(userId, start, end),
+      ]);
+
+      const monthlyScore = Math.round((coeffA.value * 30 + coeffC.value * 70) * 100) / 100;
+
       history.push({
         period,
-        coefficient_a: Math.round((0.7 + Math.random() * 0.3) * 100) / 100,
-        coefficient_b: Math.round((0.9 + Math.random() * 0.15) * 100) / 100,
-        coefficient_c: Math.round((0.7 + Math.random() * 0.3) * 100) / 100,
-        monthly_score: Math.round((70 + Math.random() * 25) * 10) / 10,
-        rank: Math.floor(3 + Math.random() * 10),
+        coefficient_a: coeffA.value,
+        coefficient_b: coeffB.value,
+        coefficient_c: coeffC.value,
+        monthly_score: monthlyScore,
       });
     }
     return history;
   }
 
-  // 升级前提条件校验
-  async checkUpgradePrerequisites(userId: string, quarter?: string) {
-    const coeffB = await this.calculateCoefficientB(userId);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async checkUpgradePrerequisites(userId: string, _quarter?: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) return null;
+
+    const { start, end } = this.getMonthRange(0);
+    const coeffB = await this.calculateCoefficientB(userId, start, end, true);
+
+    const notLowPerformance = !user.statusNote?.includes('低绩效');
 
     const prerequisites = {
       coefficient_b_qualified: coeffB.qualified,
-      not_in_low_performance: true,
-      complaints_qualified: true,
+      not_in_low_performance: notLowPerformance,
+      complaints_qualified: true, // TODO: wire in complaint data when available
       complaints_count: 0,
       not_in_promotion_restriction: true,
     };
 
     return {
       userId,
-      all_met: Object.values(prerequisites).every(v => v === true || v === 0),
+      all_met: prerequisites.coefficient_b_qualified &&
+               prerequisites.not_in_low_performance &&
+               prerequisites.complaints_qualified &&
+               prerequisites.not_in_promotion_restriction,
       details: prerequisites,
     };
   }
 
-  // 晋级候选人
-  async getPromotionList(quarter?: string) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async getPromotionList(_quarter?: string) {
     const ranking = await this.getRanking();
     const top20 = ranking.filter(r => r.is_top_20);
 
-    return Promise.all(top20.map(async r => {
-      const prereq = await this.checkUpgradePrerequisites(r.userId);
-      return {
-        ...r,
-        prerequisites: prereq.details,
-        all_conditions_met: prereq.all_met,
-      };
-    }));
+    return Promise.all(
+      top20.map(async r => {
+        const prereq = await this.checkUpgradePrerequisites(r.userId);
+        return { ...r, prerequisites: prereq?.details, all_conditions_met: prereq?.all_met ?? false };
+      }),
+    );
   }
 
-  // 低绩效预警人员
   async getLowPerformanceList() {
-    // 返回绩效提升管理制度预警人员
-    return [
-      { userId: 'user_009', name: '吴杰', level: 'A', dept: '浦东三部', consecutive_low: 1, reason: '已在低绩效名单', coaching_status: '总监辅导中' },
-      { userId: 'user_010', name: '郑涛', level: 'S1', dept: '长宁一部', consecutive_low: 2, reason: '连续低绩效', coaching_status: '大部总介入' },
-    ];
+    const allStaff = await this.usersService.findAll();
+    return allStaff
+      .filter(u => u.statusNote?.includes('低绩效'))
+      .map(u => ({
+        userId: u.id,
+        name: u.name,
+        level: u.level,
+        dept: u.department,
+        statusNote: u.statusNote,
+      }));
   }
 
-  // 重新计算绩效
   async recalculate(period?: string) {
-    // 触发全量重新计算
     const ranking = await this.getRanking(period);
     return {
       message: '绩效重新计算完成',
