@@ -251,9 +251,19 @@ export class AttendanceService {
     return this.nfcTagRepo.find({ where: { status: TagStatus.ACTIVE } });
   }
 
-  // 创建NFC标签（初始化用）
+  // 创建NFC标签
   async createNfcTag(tagData: Partial<NfcTag>): Promise<NfcTag> {
     const tag = this.nfcTagRepo.create(tagData);
+    return this.nfcTagRepo.save(tag);
+  }
+
+  // 查找NFC标签
+  async findNfcTag(tagId: string): Promise<NfcTag | null> {
+    return this.nfcTagRepo.findOne({ where: { tagId } });
+  }
+
+  // 保存NFC标签
+  async saveNfcTag(tag: NfcTag): Promise<NfcTag> {
     return this.nfcTagRepo.save(tag);
   }
 }

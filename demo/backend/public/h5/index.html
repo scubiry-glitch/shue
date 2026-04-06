@@ -600,8 +600,24 @@ async function doMultiRoleCheckIn() {
             tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
         }
         const tag = currentNfcTag || tags[Math.floor(Math.random() * tags.length)];
-        const gpsLat = tag.lat + (Math.random() - 0.5) * 0.001;
-        const gpsLng = tag.lng + (Math.random() - 0.5) * 0.001;
+
+        // 获取真实 GPS 定位
+        let gpsLat, gpsLng, gpsAccuracy;
+        try {
+            const pos = await new Promise((resolve, reject) =>
+                navigator.geolocation.getCurrentPosition(resolve, reject,
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 })
+            );
+            gpsLat = pos.coords.latitude;
+            gpsLng = pos.coords.longitude;
+            gpsAccuracy = pos.coords.accuracy;
+        } catch (gpsErr) {
+            // GPS 获取失败，回退到模拟坐标
+            console.warn('GPS定位失败，使用模拟坐标:', gpsErr.message);
+            gpsLat = tag.lat + (Math.random() - 0.5) * 0.001;
+            gpsLng = tag.lng + (Math.random() - 0.5) * 0.001;
+            gpsAccuracy = 999;
+        }
 
         const res = await fetch(`${API_BASE}/attendance/checkin`, {
             method: 'POST',
@@ -609,7 +625,7 @@ async function doMultiRoleCheckIn() {
             body: JSON.stringify({
                 nfcTagId: tag.tagId, userId: USER.id, userName: USER.name,
                 recordType: 'CHECK_IN', gpsLat, gpsLng,
-                gpsAccuracy: 5 + Math.random() * 15,
+                gpsAccuracy,
                 deviceId: 'demo_device_001', deviceModel: 'iPhone 15 Pro', photos: [],
                 role: selectedRole,
                 taskType: selectedTask.code,

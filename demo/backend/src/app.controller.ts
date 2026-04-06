@@ -21,4 +21,13 @@ export class AppController {
       timestamp: new Date().toISOString(),
     };
   }
+
+  @Get('config/nfc')
+  @ApiOperation({ summary: '获取NFC写卡配置' })
+  getNfcConfig() {
+    return {
+      nfcDomain: process.env.NFC_DOMAIN || 'nfc.meizu.life',
+      urlTemplate: `https://${process.env.NFC_DOMAIN || 'nfc.meizu.life'}/h5/#checkin?tag={tag_id}`,
+    };
+  }
 }

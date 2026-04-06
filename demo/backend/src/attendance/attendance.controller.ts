@@ -80,4 +80,64 @@ export class AttendanceController {
     });
     return { message: '写卡结果已记录', received: body.results.length };
   }
+
+  @Post('nfc-tags/bind')
+  @ApiOperation({ summary: '写卡成功后绑定NFC标签到房源' })
+  async bindNfcTag(@Body() body: {
+    tagId: string;
+    houseId: string;
+    houseName: string;
+    address: string;
+    lat: number;
+    lng: number;
+    url: string;
+  }): Promise<any> {
+    // 检查是否已存在
+    const existing = await this.attendanceService.findNfcTag(body.tagId);
+    if (existing) {
+      // 更新
+      existing.houseId = body.houseId;
+      existing.address = body.address;
+      existing.lat = body.lat;
+      existing.lng = body.lng;
+      existing.status = 'ACTIVE' as any;
+      return this.attendanceService.saveNfcTag(existing);
+    }
+    // 新建
+    return this.attendanceService.createNfcTag({
+      tagId: body.tagId,
+      tagType: TagType.HOUSE,
+      houseId: body.houseId,
+      lat: body.lat,
+      lng: body.lng,
+      address: body.address,
+      status: TagStatus.ACTIVE,
+    });
+  }
+
+  @Get('nfc-tags/houses')
+  @ApiOperation({ summary: '获取可绑定的房源列表' })
+  async getHouseList(): Promise<any[]> {
+    // 返回全部房源（生产环境从房源系统获取）
+    const tags = await this.attendanceService.getAllNfcTags();
+    const boundHouseIds = new Set(tags.map(t => t.houseId).filter(Boolean));
+
+    // 模拟房源列表（含已绑定状态）
+    const houses = [
+      { houseId: 'house_001', name: '静安寺公寓', address: '上海市静安区南京西路1266号', lat: 31.2304, lng: 121.4737 },
+      { houseId: 'house_002', name: '徐家汇花园', address: '上海市徐汇区淮海中路999号', lat: 31.2222, lng: 121.4581 },
+      { houseId: 'house_003', name: '虹桥路公寓', address: '上海市长宁区虹桥路1号', lat: 31.1956, lng: 121.4365 },
+      { houseId: 'house_004', name: '陆家嘴花园', address: '上海市浦东新区陆家嘴环路1000号', lat: 31.2456, lng: 121.5054 },
+      { houseId: 'house_005', name: '中山公园寓', address: '上海市长宁区长宁路1018号', lat: 31.2205, lng: 121.4170 },
+      { houseId: 'house_006', name: '人民广场居', address: '上海市黄浦区南京西路325号', lat: 31.2328, lng: 121.4737 },
+      { houseId: 'house_007', name: '世纪公园寓', address: '上海市浦东新区锦绣路1001号', lat: 31.2089, lng: 121.5467 },
+      { houseId: 'house_008', name: '莘庄公寓', address: '上海市闵行区莘朱路88号', lat: 31.1117, lng: 121.3862 },
+    ];
+
+    return houses.map(h => ({
+      ...h,
+      bound: boundHouseIds.has(h.houseId),
+      boundTagId: tags.find(t => t.houseId === h.houseId)?.tagId || null,
+    }));
+  }
 }
