@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AttendanceRecord, RecordStatus, RecordType } from './attendance-record.entity';
@@ -145,11 +145,14 @@ export class AttendanceService {
     return this.recordRepo.save(record);
   }
 
-  // 签退
-  async checkOut(dto: CheckOutDto): Promise<AttendanceRecord> {
+  // 签退（currentUserId: 来自 JWT，用于权限校验）
+  async checkOut(dto: CheckOutDto, currentUserId?: string): Promise<AttendanceRecord> {
     const record = await this.recordRepo.findOne({ where: { id: dto.recordId } });
     if (!record) {
       throw new NotFoundException('打卡记录不存在');
+    }
+    if (currentUserId && record.userId !== currentUserId) {
+      throw new ForbiddenException('无权操作他人的打卡记录');
     }
 
     record.checkOutTime = new Date();

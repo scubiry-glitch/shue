@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Headers, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, Request, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
@@ -69,15 +69,34 @@ export class AuthController {
   }
 
   /**
-   * 验证当前 token 并返回用户信息
+   * 使用 refreshToken 换取新的 accessToken
+   */
+  @Public()
+  @Post('refresh')
+  @ApiOperation({ summary: '刷新 accessToken' })
+  @ApiBody({ schema: { properties: { refreshToken: { type: 'string' } } } })
+  async refresh(@Body('refreshToken') refreshToken: string) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('refreshToken 不能为空');
+    }
+    return this.authService.refreshAccessToken(refreshToken);
+  }
+
+  /**
+   * 获取当前登录用户信息
    */
   @Get('me')
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取当前登录用户信息' })
-  getMe(@Headers('authorization') auth: string) {
-    // The JwtAuthGuard (applied globally) already validated the token.
-    // User is injected via request object; return from guard-set context.
-    // Here we just acknowledge — actual user data comes from request in real impl.
-    return { message: '已登录' };
+  getMe(@Request() req: any) {
+    const user = req.user;
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      department: user.department,
+      permissions: user.permissions,
+    };
   }
 }

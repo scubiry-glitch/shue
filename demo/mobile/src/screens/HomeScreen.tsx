@@ -11,6 +11,8 @@ import {
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { APP_MODE } from '../config';
+import { useNfc } from '../hooks/useNfc';
+import { enqueueCheckIn, syncQueue, getPendingCount } from '../services/offlineQueue';
 import {
   formatTime,
   formatDuration,
@@ -66,6 +68,8 @@ export default function HomeScreen() {
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
 
   const isRealMode = APP_MODE === 'real';
+  const { isNfcSupported, isScanning, readNfcTag } = useNfc();
+  const [pendingCount, setPendingCount] = useState(0);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -90,47 +94,107 @@ export default function HomeScreen() {
     if (!isRealMode) {
       loadData();
     } else if (user) {
-      // 真实模式下只拉今日统计（不展示 records）
       api.getTodayStats(user.id)
         .then(data => setStats(data))
         .catch(() => {});
     }
+
+    // 启动时同步离线队列并更新待上传数
+    getPendingCount().then(setPendingCount);
+    syncQueue().then(result => {
+      if (result.success > 0) {
+        Alert.alert('离线数据已同步', `成功上传 ${result.success} 条离线打卡记录`);
+        getPendingCount().then(setPendingCount);
+        loadData();
+      }
+    }).catch(() => {});
   }, [isRealMode, user]);
 
-  // NFC 打卡（模拟）
+  // NFC 打卡（真实 / 模拟两用）
   const simulateCheckIn = async () => {
     if (!user) return;
     try {
       setLoading(true);
 
-      const tags = await api.getNfcTags();
-      if (tags.length === 0) {
-        await api.initNfcTags();
+      let nfcTagId: string;
+      let gpsLat: number;
+      let gpsLng: number;
+      let gpsAccuracy: number;
+
+      if (isRealMode && isNfcSupported) {
+        // ── 真实模式：读取 NFC 标签 ──────────────────────────────────────────
+        Alert.alert('NFC 打卡', '请将手机靠近房源 NFC 标签...');
+        const { tagId } = await readNfcTag();
+        if (!tagId) {
+          Alert.alert('打卡失败', '未能读取 NFC 标签，请重试');
+          return;
+        }
+        nfcTagId = tagId;
+        // 真实定位（此处使用 Geolocation，已在 package.json 中声明）
+        gpsLat = 0;
+        gpsLng = 0;
+        gpsAccuracy = 999;
+        try {
+          const { Geolocation } = await import('@react-native-community/geolocation');
+          await new Promise<void>((resolve, reject) => {
+            Geolocation.getCurrentPosition(
+              pos => {
+                gpsLat = pos.coords.latitude;
+                gpsLng = pos.coords.longitude;
+                gpsAccuracy = pos.coords.accuracy;
+                resolve();
+              },
+              reject,
+              { timeout: 5000, maximumAge: 10000 },
+            );
+          });
+        } catch {
+          // GPS 获取失败时继续打卡，后端会标记为异常
+        }
+      } else {
+        // ── Mock 模式：随机选取标签 ─────────────────────────────────────────
+        const tags = await api.getNfcTags();
+        if (tags.length === 0) {
+          await api.initNfcTags();
+        }
+        const activeTags = await api.getNfcTags();
+        const randomTag = activeTags[Math.floor(Math.random() * activeTags.length)];
+        nfcTagId = randomTag.tagId;
+        gpsLat = randomTag.lat + (Math.random() - 0.5) * 0.001;
+        gpsLng = randomTag.lng + (Math.random() - 0.5) * 0.001;
+        gpsAccuracy = 5 + Math.random() * 15;
       }
 
-      const activeTags = await api.getNfcTags();
-      const randomTag = activeTags[Math.floor(Math.random() * activeTags.length)];
-
-      const gpsLat = randomTag.lat + (Math.random() - 0.5) * 0.001;
-      const gpsLng = randomTag.lng + (Math.random() - 0.5) * 0.001;
-
-      const result = await api.checkIn({
-        nfcTagId: randomTag.tagId,
+      const checkInData = {
+        nfcTagId,
         userId: user.id,
         userName: user.name,
         recordType: 'CHECK_IN',
         gpsLat,
         gpsLng,
-        gpsAccuracy: 5 + Math.random() * 15,
+        gpsAccuracy,
         deviceId,
         deviceModel: 'iPhone 14 Pro',
         photos: [],
-      });
+      };
 
-      Alert.alert(
-        '打卡成功',
-        `房源: ${result.houseName || '未知'}\n质量评分: ${result.qualityScore}分\n${result.isAnomaly ? '⚠️ ' + result.anomalyReason : ''}`,
-      );
+      let result: any;
+      try {
+        result = await api.checkIn(checkInData);
+        Alert.alert(
+          '打卡成功',
+          `房源: ${result.houseName || '未知'}\n质量评分: ${result.qualityScore}分\n${result.isAnomaly ? '⚠️ ' + result.anomalyReason : ''}`,
+        );
+      } catch (netErr: any) {
+        // 网络失败 → 写入离线队列
+        await enqueueCheckIn(checkInData);
+        const count = await getPendingCount();
+        setPendingCount(count);
+        Alert.alert(
+          '网络不可用',
+          `打卡数据已本地保存，恢复网络后将自动上传（待上传: ${count} 条）`,
+        );
+      }
 
       // 真实模式：打卡成功后才展示房源卡片并加载数据
       if (isRealMode) {
@@ -176,10 +240,17 @@ export default function HomeScreen() {
             <Text style={styles.logoutText}>退出</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.modeBadge}>
-          <Text style={styles.modeText}>
-            {isRealMode ? '正式模式' : 'Mock 模式'}
-          </Text>
+        <View style={styles.headerBadges}>
+          <View style={styles.modeBadge}>
+            <Text style={styles.modeText}>
+              {isRealMode ? '正式模式' : 'Mock 模式'}
+            </Text>
+          </View>
+          {pendingCount > 0 && (
+            <View style={styles.pendingBadge}>
+              <Text style={styles.pendingText}>离线待上传 {pendingCount} 条</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -218,21 +289,26 @@ export default function HomeScreen() {
 
       {/* NFC打卡按钮 */}
       <TouchableOpacity
-        style={[styles.checkInButton, loading && styles.disabledButton]}
+        style={[styles.checkInButton, (loading || isScanning) && styles.disabledButton]}
         onPress={simulateCheckIn}
-        disabled={loading}
+        disabled={loading || isScanning}
       >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
+        {loading || isScanning ? (
+          <>
+            <ActivityIndicator color="#fff" />
+            {isScanning && <Text style={styles.checkInButtonSub}>正在读取 NFC 标签...</Text>}
+          </>
         ) : (
           <>
             <Text style={styles.checkInButtonIcon}>📱</Text>
             <Text style={styles.checkInButtonText}>
-              {isRealMode ? 'NFC 打卡' : '模拟 NFC 打卡'}
+              {isRealMode && isNfcSupported ? 'NFC 打卡' : isRealMode ? 'NFC 不可用' : '模拟 NFC 打卡'}
             </Text>
             <Text style={styles.checkInButtonSub}>
               {isRealMode
-                ? '靠近房源NFC标签打卡，打卡后显示房源信息'
+                ? isNfcSupported
+                  ? '靠近房源NFC标签打卡，打卡后显示房源信息'
+                  : '当前设备不支持 NFC'
                 : '靠近房源NFC标签即可打卡'}
             </Text>
           </>
@@ -334,15 +410,21 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   logoutText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  headerBadges: { flexDirection: 'row', marginTop: 10, gap: 8, flexWrap: 'wrap' },
   modeBadge: {
-    marginTop: 10,
     backgroundColor: 'rgba(255,255,255,0.15)',
-    alignSelf: 'flex-start',
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 12,
   },
   modeText: { color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: '500' },
+  pendingBadge: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  pendingText: { color: '#fff', fontSize: 11, fontWeight: '600' },
   statsCard: {
     backgroundColor: '#fff',
     margin: 15,

@@ -17,6 +17,8 @@ export interface JwtPayload {
 
 export interface AuthResult {
   token: string;
+  refreshToken: string;
+  expiresIn: number; // seconds
   user: {
     id: string;
     email: string;
@@ -41,6 +43,18 @@ export class AuthService {
     return (this.configService.get<string>('AUTH_MODE') || 'mock') as 'mock' | 'supabase';
   }
 
+  private readonly ACCESS_TOKEN_EXPIRES = 60 * 60 * 2;    // 2小时
+  private readonly REFRESH_TOKEN_EXPIRES = 60 * 60 * 24 * 30; // 30天
+
+  private buildTokenPair(payload: JwtPayload): { token: string; refreshToken: string; expiresIn: number } {
+    const token = this.jwtService.sign(payload, { expiresIn: this.ACCESS_TOKEN_EXPIRES });
+    const refreshToken = this.jwtService.sign(
+      { sub: payload.sub, type: 'refresh', mode: payload.mode },
+      { expiresIn: this.REFRESH_TOKEN_EXPIRES },
+    );
+    return { token, refreshToken, expiresIn: this.ACCESS_TOKEN_EXPIRES };
+  }
+
   // ─── Mock Mode ────────────────────────────────────────────────────────────
 
   async mockLogin(email: string, password: string): Promise<AuthResult> {
@@ -57,9 +71,9 @@ export class AuthService {
       mode: 'mock',
     };
 
-    const token = this.jwtService.sign(payload);
+    const tokens = this.buildTokenPair(payload);
     return {
-      token,
+      ...tokens,
       user: {
         id: mockUser.id,
         email: mockUser.email,
@@ -69,6 +83,46 @@ export class AuthService {
         permissions: ROLE_PERMISSIONS[mockUser.role] || [],
       },
     };
+  }
+
+  async refreshAccessToken(refreshToken: string): Promise<{ token: string; expiresIn: number }> {
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(refreshToken);
+    } catch {
+      throw new UnauthorizedException('refresh token 无效或已过期，请重新登录');
+    }
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('token 类型错误');
+    }
+
+    const mode: 'mock' | 'supabase' = payload.mode || 'mock';
+
+    if (mode === 'mock') {
+      const mockUser = this.usersService.getMockUsers().find(u => u.id === payload.sub);
+      if (!mockUser) throw new UnauthorizedException('用户不存在');
+      const newPayload: JwtPayload = {
+        sub: mockUser.id,
+        email: mockUser.email,
+        name: mockUser.name,
+        role: mockUser.role,
+        mode: 'mock',
+      };
+      const token = this.jwtService.sign(newPayload, { expiresIn: this.ACCESS_TOKEN_EXPIRES });
+      return { token, expiresIn: this.ACCESS_TOKEN_EXPIRES };
+    } else {
+      const user = await this.usersService.findById(payload.sub);
+      if (!user) throw new UnauthorizedException('用户不存在');
+      const newPayload: JwtPayload = {
+        sub: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        mode: 'supabase',
+      };
+      const token = this.jwtService.sign(newPayload, { expiresIn: this.ACCESS_TOKEN_EXPIRES });
+      return { token, expiresIn: this.ACCESS_TOKEN_EXPIRES };
+    }
   }
 
   getMockUserList() {
@@ -109,7 +163,7 @@ export class AuthService {
     // Upsert user in our DB
     const user = await this.usersService.upsertFromSupabase(supabaseId, email, name);
 
-    // Issue our own app JWT
+    // Issue our own app JWT pair
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -118,9 +172,9 @@ export class AuthService {
       mode: 'supabase',
     };
 
-    const token = this.jwtService.sign(payload);
+    const tokens = this.buildTokenPair(payload);
     return {
-      token,
+      ...tokens,
       user: {
         id: user.id,
         email: user.email,

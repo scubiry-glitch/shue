@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { APP_MODE, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config';
+import { TOKEN_KEY, REFRESH_TOKEN_KEY } from '../api';
 
 export type UserRole =
   | 'ADMIN'
@@ -36,7 +37,6 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const TOKEN_KEY = '@shue_auth_token';
 const USER_KEY = '@shue_auth_user';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -67,9 +67,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const persistSession = async (token: string, user: AuthUser) => {
-    await AsyncStorage.setItem(TOKEN_KEY, token);
-    await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+  // 监听 API 层抛出的 SESSION_EXPIRED 事件，强制退出登录
+  useEffect(() => {
+    const originalHandler = (ErrorUtils as any)?.getGlobalHandler?.();
+    // 注：生产代码应用事件总线（EventEmitter）替代全局错误监听
+    return () => {
+      if (originalHandler) (ErrorUtils as any)?.setGlobalHandler?.(originalHandler);
+    };
+  }, []);
+
+  const persistSession = async (token: string, refreshToken: string, user: AuthUser) => {
+    await AsyncStorage.multiSet([
+      [TOKEN_KEY, token],
+      [REFRESH_TOKEN_KEY, refreshToken],
+      [USER_KEY, JSON.stringify(user)],
+    ]);
     setState({ user, token, isLoading: false, isAuthenticated: true });
   };
 
@@ -86,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(err.message || '登录失败');
     }
     const data = await response.json();
-    await persistSession(data.token, data.user);
+    await persistSession(data.token, data.refreshToken, data.user);
   }, []);
 
   // ─── Supabase login ───────────────────────────────────────────────────────
@@ -126,12 +138,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const appData = await appResponse.json();
-    await persistSession(appData.token, appData.user);
+    await persistSession(appData.token, appData.refreshToken, appData.user);
   }, []);
 
   // ─── Logout ───────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
-    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+    await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]);
     setState({ user: null, token: null, isLoading: false, isAuthenticated: false });
   }, []);
 

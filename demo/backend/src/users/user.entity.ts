@@ -74,6 +74,23 @@ export class User {
   @Column({ nullable: true, name: 'mock_password', select: false })
   mockPassword: string;
 
+  // ─── Staff 扩展字段（原 StaffController 中的硬编码数据）────────────────────
+  @Column({ nullable: true, length: 8 })
+  @ApiProperty({ required: false, description: '职级 S1/A/M 等' })
+  level: string;
+
+  @Column({ type: 'date', nullable: true, name: 'join_date' })
+  @ApiProperty({ required: false })
+  joinDate: Date;
+
+  @Column({ nullable: true, name: 'device_model', length: 64 })
+  @ApiProperty({ required: false })
+  deviceModel: string;
+
+  @Column({ nullable: true, name: 'status_note', length: 128 })
+  @ApiProperty({ required: false, description: '状态备注（如：低绩效预警）' })
+  statusNote: string;
+
   @Column({ default: true, name: 'is_active' })
   @ApiProperty()
   isActive: boolean;
