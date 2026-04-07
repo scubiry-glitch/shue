@@ -30,8 +30,8 @@ import { HouseModule } from './house/house.module';
       database: process.env.DB_NAME || 'nfc_attendance',
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       migrations: [__dirname + '/migrations/*{.ts,.js}'],
-      // 开发环境自动同步，生产环境必须手动执行 migration:run
-      synchronize: process.env.NODE_ENV !== 'production',
+      // 默认关闭自动同步，避免历史数据导致启动失败；需要时可显式设置 TYPEORM_SYNC=true
+      synchronize: process.env.TYPEORM_SYNC === 'true',
       logging: process.env.NODE_ENV === 'development',
     }),
     TypeOrmModule.forFeature([AttendanceRecord, User, Appeal]),

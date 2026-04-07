@@ -224,10 +224,8 @@ export class AttendanceService {
     if (nfcTag.status === TagStatus.SUSPENDED) {
       throw new BadRequestException('该房源 NFC 标签已暂停使用（房源空置或其他原因），请联系管理员');
     }
-    if (nfcTag.status === TagStatus.LOST) {
-      throw new BadRequestException('该 NFC 标签已标记为遗失，本次打卡将被记录为可疑记录');
-    }
-    if (nfcTag.status !== TagStatus.ACTIVE) {
+    const isLostTag = nfcTag.status === TagStatus.LOST;
+    if (nfcTag.status !== TagStatus.ACTIVE && !isLostTag) {
       throw new BadRequestException(`NFC标签状态异常: ${nfcTag.status}`);
     }
     // 标签有效期检查
@@ -311,7 +309,7 @@ export class AttendanceService {
     }
 
     // LOST 标签额外标记
-    if (nfcTag.status === TagStatus.LOST) {
+    if (isLostTag) {
       record.isAnomaly = true;
       record.anomalyType = 'LOST_TAG';
       record.anomalyReason = '使用了已标记遗失的NFC标签';
