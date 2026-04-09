@@ -83,6 +83,7 @@
             <div style="font-weight:600;" id="page-title">数据看板</div>
             <div style="display:flex;align-items:center;gap:16px;">
                 <span style="font-size:13px;color:#8C8C8C;" id="current-time"></span>
+                <span style="font-size:12px;color:#8C8C8C;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="auth-status" title="">会话初始化中…</span>
                 <span style="font-size:13px;"><i class="fas fa-bell" style="margin-right:4px;"></i>消息</span>
                 <span style="font-size:13px;"><i class="fas fa-user-circle" style="margin-right:4px;"></i>管理员</span>
             </div>
@@ -496,6 +497,55 @@
 
 <script>
 const API_BASE = window.location.origin;
+/** 与后端 mock 用户一致；管理员带此 userId 可查询该用户考勤 */
+const DEMO_STATS_USER_ID = 'mock_user_001';
+const AUTH_STORAGE_KEY = 'nfc_admin_jwt';
+let authReadyPromise = null;
+
+async function ensureAuth() {
+    const existing = sessionStorage.getItem(AUTH_STORAGE_KEY);
+    if (existing) return existing;
+    if (!authReadyPromise) {
+        authReadyPromise = (async () => {
+            const modeRes = await fetch(`${API_BASE}/auth/mode`);
+            const modeData = await modeRes.json().catch(() => ({}));
+            if (modeData.mode !== 'mock') {
+                const el = document.getElementById('auth-status');
+                if (el) { el.textContent = '当前为 supabase 模式，请改用 Mock 或自行接入登录'; el.style.color = 'var(--danger)'; }
+                return null;
+            }
+            const res = await fetch(`${API_BASE}/auth/mock/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'admin@demo.com', password: 'admin123' }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const el = document.getElementById('auth-status');
+                if (el) { el.textContent = '登录失败: ' + (data.message || res.status); el.style.color = 'var(--danger)'; }
+                return null;
+            }
+            const token = data.token;
+            if (token) sessionStorage.setItem(AUTH_STORAGE_KEY, token);
+            const el = document.getElementById('auth-status');
+            if (el && data.user) {
+                el.textContent = '已登录: ' + (data.user.name || data.user.email);
+                el.title = data.user.email || '';
+            }
+            return token || null;
+        })();
+    }
+    return authReadyPromise;
+}
+
+/** 带 JWT 的 fetch（运营管理端自动 Mock 管理员登录） */
+async function apiFetch(path, options = {}) {
+    const token = await ensureAuth();
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set('Authorization', 'Bearer ' + token);
+    const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
+    return fetch(url, { ...options, headers });
+}
 
 // ===== 导航 =====
 const pageTitles = {
@@ -521,18 +571,31 @@ function showPage(page) {
 // ===== 数据看板 =====
 async function loadDashboard() {
     try {
-        const res = await fetch(`${API_BASE}/attendance/stats/today?userId=user_001`);
+        const res = await apiFetch(`/attendance/stats/today?userId=${encodeURIComponent(DEMO_STATS_USER_ID)}`);
         const data = await res.json();
-        document.getElementById('dash-showings').textContent = data.totalCheckIns || 0;
+        if (!res.ok) return;
+        document.getElementById('dash-showings').textContent = data.totalCheckIns ?? 0;
     } catch(e) {}
 }
 
 // ===== 考勤管理 =====
 async function loadAttendanceRecords() {
     try {
-        const res = await fetch(`${API_BASE}/attendance/records?userId=user_001`);
+        const res = await apiFetch(`/attendance/records?userId=${encodeURIComponent(DEMO_STATS_USER_ID)}`);
         const records = await res.json();
         const tbody = document.getElementById('attendance-table-body');
+        if (!res.ok) {
+            const msg = records?.message || records?.error || ('HTTP ' + res.status);
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger);">加载失败: ${msg}</td></tr>`;
+            document.getElementById('attendance-count').textContent = '共 0 条';
+            return;
+        }
+        if (!Array.isArray(records)) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--danger);">数据格式错误（非列表）</td></tr>';
+            document.getElementById('attendance-count').textContent = '共 0 条';
+            console.error('records is not array:', records);
+            return;
+        }
         tbody.innerHTML = records.map(r => `
             <tr>
                 <td><input type="checkbox"></td>
@@ -588,21 +651,33 @@ function switchPromotionTab(tab) {
 }
 
 // ===== 房源管理 =====
+/** 与后端 /attendance/nfc-tags/houses 一致：展示全部演示房源（含未绑定 NFC 的 catalog 项，如北京 house_009） */
 async function loadHouses() {
     try {
-        const res = await fetch(`${API_BASE}/attendance/nfc-tags`);
-        const tags = await res.json();
-        document.getElementById('houses-table-body').innerHTML = tags.map(t => `
+        const res = await fetch(`${API_BASE}/attendance/nfc-tags/houses`);
+        const houses = await res.json();
+        if (!res.ok || !Array.isArray(houses)) {
+            document.getElementById('houses-table-body').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+            return;
+        }
+        document.getElementById('houses-table-body').innerHTML = houses.map(h => {
+            const tagCell = h.bound && h.boundTagId
+                ? `<code style="font-size:12px;background:#f5f5f5;padding:2px 6px;border-radius:3px;">${h.boundTagId}</code>`
+                : '<span style="color:#8C8C8C;font-size:13px;">未绑定</span>';
+            const statusBadge = h.bound
+                ? '<span class="badge badge-success">已绑定</span>'
+                : '<span class="badge badge-warning">待绑定</span>';
+            return `
             <tr>
-                <td style="font-weight:600;">${t.houseId ? '房源' + t.houseId : '门店'}</td>
-                <td>${t.address || '-'}</td>
-                <td><code style="font-size:12px;background:#f5f5f5;padding:2px 6px;border-radius:3px;">${t.tagId}</code></td>
-                <td><span class="badge ${t.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}">${t.status}</span></td>
+                <td style="font-weight:600;">${h.name || h.houseId || '-'}</td>
+                <td>${h.address || '-'}</td>
+                <td>${tagCell}</td>
+                <td>${statusBadge}</td>
                 <td>-</td>
                 <td>-</td>
                 <td><button class="btn btn-sm">编辑</button></td>
-            </tr>
-        `).join('');
+            </tr>`;
+        }).join('');
     } catch(e) { console.error(e); }
 }
 
@@ -629,7 +704,12 @@ function switchMultiTab(tab) {
 
 async function loadMultiRoleStats() {
     try {
-        const data = await (await fetch(`${API_BASE}/stats/house`)).json();
+        const res = await apiFetch(`/stats/house`);
+        const data = await res.json();
+        if (!res.ok || !Array.isArray(data)) {
+            console.error('stats/house failed', data);
+            return;
+        }
         const ROLE_LABELS = { ACCOUNT_MANAGER: '客户经理', AGENT: '经纪人', HOUSE_MANAGER: '管家', ASSET_MANAGER: '资管' };
 
         // 汇总
@@ -677,7 +757,9 @@ async function loadMultiRoleStats() {
 
 async function loadEmptyViewStats() {
     try {
-        const data = await (await fetch(`${API_BASE}/stats/empty-views`)).json();
+        const res = await apiFetch(`/stats/empty-views`);
+        const data = await res.json();
+        if (!res.ok || !Array.isArray(data)) return;
         document.getElementById('multi-ev-tbody').innerHTML = data.map(h => `
             <tr>
                 <td style="font-weight:600;">${h.houseName || h.houseId}</td>
@@ -691,7 +773,9 @@ async function loadEmptyViewStats() {
 
 async function loadRoleStats(role) {
     try {
-        const data = await (await fetch(`${API_BASE}/stats/by-role?role=${role}`)).json();
+        const res = await apiFetch(`/stats/by-role?role=${encodeURIComponent(role)}`);
+        const data = await res.json();
+        if (!res.ok || !data || typeof data !== 'object') return;
         const isHM = role === 'HOUSE_MANAGER';
         const isAM2 = role === 'ACCOUNT_MANAGER';
         const tbodyId = isAM2 ? 'multi-am2-tbody' : isHM ? 'multi-hm-tbody' : 'multi-am-tbody';
@@ -740,7 +824,7 @@ function updateTime() { document.getElementById('current-time').textContent = ne
 setInterval(updateTime, 1000); updateTime();
 
 // ===== 初始化 =====
-loadDashboard();
+ensureAuth().then(() => loadDashboard());
 </script>
 </body>
 </html>

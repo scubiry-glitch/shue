@@ -31,8 +31,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# 复制编译产物
+# 复制编译产物与静态资源（H5 / admin）
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/public ./public
 
 EXPOSE 3010
 CMD ["node", "dist/main"]

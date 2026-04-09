@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "backend:dev": "cd backend && npm run start:dev",
+    "backend:prod": "cd backend && npm run build && npm run start:prod",
+    "backend:migrate": "cd backend && npm run migration:run",
     "backend:build": "cd backend && npm run build",
     "mobile:start": "cd mobile && npx react-native start",
     "mobile:ios": "cd mobile && npx react-native run-ios",

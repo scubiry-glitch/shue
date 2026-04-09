@@ -195,7 +195,16 @@ async function loadConfig() {
 async function loadHouses() {
     try {
         const res = await fetch(`${API_BASE}/attendance/nfc-tags/houses`);
-        houses = await res.json();
+        const data = await res.json();
+        if (!res.ok) {
+            const msg = data.message || data.error || `HTTP ${res.status}`;
+            throw new Error(msg);
+        }
+        if (!Array.isArray(data)) {
+            addLog(`✗ 接口返回非列表: ${typeof data}`);
+            throw new Error('服务器返回数据格式错误（期望房源数组）');
+        }
+        houses = data;
         renderHouses(houses);
         addLog(`加载 ${houses.length} 个房源`);
     } catch(e) {
@@ -326,6 +335,10 @@ async function bindToServer() {
             })
         });
         const data = await res.json();
+        if (!res.ok) {
+            const msg = data.message || data.error || `HTTP ${res.status}`;
+            throw new Error(msg);
+        }
         addLog(`✓ 服务器绑定成功: ${tagId} → ${selectedHouse.name}`);
 
         // 显示完成

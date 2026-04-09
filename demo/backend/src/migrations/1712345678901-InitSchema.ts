@@ -2,9 +2,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * 初始迁移：创建 nfc_tags、attendance_records、users 表
- * 生成命令：npx typeorm migration:generate -d src/data-source.ts src/migrations/InitSchema
- * 执行命令：npx typeorm migration:run -d src/data-source.ts
- * 回滚命令：npx typeorm migration:revert -d src/data-source.ts
+ * 已做幂等处理：库中若已有 init.sql / 手工建表或重复执行，不会因「已存在」而失败。
  */
 export class InitSchema1712345678901 implements MigrationInterface {
   name = 'InitSchema1712345678901';
@@ -12,12 +10,16 @@ export class InitSchema1712345678901 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // ── users ────────────────────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TYPE "public"."users_role_enum" AS ENUM(
-        'ACCOUNT_MANAGER', 'AGENT', 'HOUSE_MANAGER', 'ASSET_MANAGER', 'ADMIN'
-      )
+      DO $$ BEGIN
+        CREATE TYPE "public"."users_role_enum" AS ENUM(
+          'ACCOUNT_MANAGER', 'AGENT', 'HOUSE_MANAGER', 'ASSET_MANAGER', 'ADMIN'
+        );
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
     `);
     await queryRunner.query(`
-      CREATE TABLE "users" (
+      CREATE TABLE IF NOT EXISTS "users" (
         "id"           UUID NOT NULL DEFAULT gen_random_uuid(),
         "email"        VARCHAR NOT NULL,
         "name"         VARCHAR NOT NULL,
@@ -40,13 +42,21 @@ export class InitSchema1712345678901 implements MigrationInterface {
 
     // ── nfc_tags ─────────────────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TYPE "public"."nfc_tags_type_enum" AS ENUM('HOUSE', 'OFFICE')
+      DO $$ BEGIN
+        CREATE TYPE "public"."nfc_tags_type_enum" AS ENUM('HOUSE', 'OFFICE');
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
     `);
     await queryRunner.query(`
-      CREATE TYPE "public"."nfc_tags_status_enum" AS ENUM('ACTIVE', 'INACTIVE', 'LOST')
+      DO $$ BEGIN
+        CREATE TYPE "public"."nfc_tags_status_enum" AS ENUM('ACTIVE', 'INACTIVE', 'LOST');
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
     `);
     await queryRunner.query(`
-      CREATE TABLE "nfc_tags" (
+      CREATE TABLE IF NOT EXISTS "nfc_tags" (
         "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
         "tag_id"     VARCHAR(64) NOT NULL,
         "tag_type"   "public"."nfc_tags_type_enum" NOT NULL DEFAULT 'HOUSE',
@@ -65,15 +75,23 @@ export class InitSchema1712345678901 implements MigrationInterface {
 
     // ── attendance_records ───────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TYPE "public"."attendance_records_record_type_enum" AS ENUM(
-        'CHECK_IN', 'CHECK_OUT', 'INSPECT', 'SIGNING', 'OFFICE_IN', 'OFFICE_OUT'
-      )
+      DO $$ BEGIN
+        CREATE TYPE "public"."attendance_records_record_type_enum" AS ENUM(
+          'CHECK_IN', 'CHECK_OUT', 'INSPECT', 'SIGNING', 'OFFICE_IN', 'OFFICE_OUT'
+        );
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
     `);
     await queryRunner.query(`
-      CREATE TYPE "public"."attendance_records_status_enum" AS ENUM('VALID', 'INVALID', 'SUSPECTED')
+      DO $$ BEGIN
+        CREATE TYPE "public"."attendance_records_status_enum" AS ENUM('VALID', 'INVALID', 'SUSPECTED');
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
     `);
     await queryRunner.query(`
-      CREATE TABLE "attendance_records" (
+      CREATE TABLE IF NOT EXISTS "attendance_records" (
         "id"               UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"          VARCHAR(64) NOT NULL,
         "user_name"        VARCHAR(64),
@@ -110,17 +128,29 @@ export class InitSchema1712345678901 implements MigrationInterface {
         CONSTRAINT "PK_attendance_records" PRIMARY KEY ("id")
       )
     `);
-    await queryRunner.query(`CREATE INDEX "IDX_attendance_user_created" ON "attendance_records" ("user_id", "created_at")`);
-    await queryRunner.query(`CREATE INDEX "IDX_attendance_nfc_tag" ON "attendance_records" ("nfc_tag_id")`);
-    await queryRunner.query(`CREATE INDEX "IDX_attendance_role_task" ON "attendance_records" ("role", "task_type")`);
-    await queryRunner.query(`CREATE INDEX "IDX_attendance_house_role" ON "attendance_records" ("house_id", "role")`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_attendance_user_created" ON "attendance_records" ("user_id", "created_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_attendance_nfc_tag" ON "attendance_records" ("nfc_tag_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_attendance_role_task" ON "attendance_records" ("role", "task_type")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_attendance_house_role" ON "attendance_records" ("house_id", "role")`,
+    );
 
     // ── appeals ───────────────────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TYPE "public"."appeals_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED')
+      DO $$ BEGIN
+        CREATE TYPE "public"."appeals_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED');
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
     `);
     await queryRunner.query(`
-      CREATE TABLE "appeals" (
+      CREATE TABLE IF NOT EXISTS "appeals" (
         "id"             UUID NOT NULL DEFAULT gen_random_uuid(),
         "record_id"      VARCHAR(64) NOT NULL,
         "user_id"        VARCHAR(64) NOT NULL,
@@ -135,12 +165,12 @@ export class InitSchema1712345678901 implements MigrationInterface {
         CONSTRAINT "PK_appeals" PRIMARY KEY ("id")
       )
     `);
-    await queryRunner.query(`CREATE INDEX "IDX_appeals_user" ON "appeals" ("user_id")`);
-    await queryRunner.query(`CREATE INDEX "IDX_appeals_record" ON "appeals" ("record_id")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_appeals_user" ON "appeals" ("user_id")`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_appeals_record" ON "appeals" ("record_id")`);
 
     // ── user_daily_stats ──────────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TABLE "user_daily_stats" (
+      CREATE TABLE IF NOT EXISTS "user_daily_stats" (
         "id"                UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"           VARCHAR(64) NOT NULL,
         "stats_date"        DATE NOT NULL,
@@ -159,20 +189,20 @@ export class InitSchema1712345678901 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP TABLE "user_daily_stats"`);
-    await queryRunner.query(`DROP TABLE "appeals"`);
-    await queryRunner.query(`DROP TYPE "public"."appeals_status_enum"`);
-    await queryRunner.query(`DROP INDEX "IDX_attendance_house_role"`);
-    await queryRunner.query(`DROP INDEX "IDX_attendance_role_task"`);
-    await queryRunner.query(`DROP INDEX "IDX_attendance_nfc_tag"`);
-    await queryRunner.query(`DROP INDEX "IDX_attendance_user_created"`);
-    await queryRunner.query(`DROP TABLE "attendance_records"`);
-    await queryRunner.query(`DROP TYPE "public"."attendance_records_status_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."attendance_records_record_type_enum"`);
-    await queryRunner.query(`DROP TABLE "nfc_tags"`);
-    await queryRunner.query(`DROP TYPE "public"."nfc_tags_status_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."nfc_tags_type_enum"`);
-    await queryRunner.query(`DROP TABLE "users"`);
-    await queryRunner.query(`DROP TYPE "public"."users_role_enum"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "user_daily_stats"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "appeals"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."appeals_status_enum"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_attendance_house_role"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_attendance_role_task"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_attendance_nfc_tag"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_attendance_user_created"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "attendance_records"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."attendance_records_status_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."attendance_records_record_type_enum"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "nfc_tags"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."nfc_tags_status_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."nfc_tags_type_enum"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "users"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."users_role_enum"`);
   }
 }

@@ -476,6 +476,7 @@ function navigate(page) {
     document.querySelector(`.tab-item[data-tab="${activeTab}"]`)?.classList.add('active');
 
     // 页面初始化
+    if (page === 'home') loadHomeData();
     if (page === 'records') loadRecords();
     if (page === 'ranking') renderRanking();
     if (page === 'notifications') renderNotifications();
@@ -599,7 +600,11 @@ async function doMultiRoleCheckIn() {
             await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
             tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
         }
-        const tag = currentNfcTag || tags[Math.floor(Math.random() * tags.length)];
+        let tag = currentNfcTag || tags[Math.floor(Math.random() * tags.length)];
+        if (!tag) {
+            alert('未识别 NFC 标签，请使用写卡链接打开本页');
+            return;
+        }
 
         // 获取真实 GPS 定位
         let gpsLat, gpsLng, gpsAccuracy;
@@ -635,7 +640,7 @@ async function doMultiRoleCheckIn() {
         const data = await res.json();
 
         let msg = `${selectedTask.name}打卡成功!\n`;
-        msg += `房源: ${data.houseName || tag.address}\n`;
+        msg += `房源: ${data.houseName || tag.name || tag.address}\n`;
         msg += `质量评分: ${data.qualityScore}分\n`;
         if (data.requireCheckout) msg += '\n⚠️ 请完成任务后再次刷卡签退';
         if (data.isAnomaly) msg += `\n⚠️ 异常: ${data.anomalyReason}`;
@@ -646,16 +651,54 @@ async function doMultiRoleCheckIn() {
     } catch(e) { alert('打卡失败: ' + e.message); }
 }
 
+/** 从 #checkin?tag=house_004_shanghai 解析 tagId */
+function getNfcTagIdFromHash() {
+    const raw = (location.hash || '').replace(/^#/, '');
+    const q = raw.includes('?') ? raw.split('?').slice(1).join('?') : '';
+    if (!q) return null;
+    return new URLSearchParams(q).get('tag');
+}
+
+function applyNfcTagToCheckinUI(tag) {
+    if (!tag) return;
+    const shortAddr = tag.address ? tag.address.split('号')[0] + '号' : '';
+    const title = tag.name || shortAddr || tag.tagId;
+    document.getElementById('ck-house-name').textContent = title;
+    const typeLabel = tag.tagType === 'HOUSE' || tag.tagType === 'House' ? '房源' : '门店';
+    document.getElementById('ck-house-addr').textContent = `${tag.address || ''} · 标签 ${tag.tagId} · ${typeLabel}`;
+}
+
 async function simulateNfcScan() {
     try {
+        const urlTag = getNfcTagIdFromHash();
+        if (urlTag) {
+            const res = await fetch(`${API_BASE}/attendance/nfc-tags/lookup/${encodeURIComponent(urlTag)}`);
+            if (res.ok) {
+                const info = await res.json();
+                currentNfcTag = {
+                    tagId: info.tagId,
+                    tagType: info.tagType,
+                    address: info.address,
+                    lat: info.lat,
+                    lng: info.lng,
+                    houseId: info.houseId,
+                    name: info.name,
+                };
+                applyNfcTagToCheckinUI(currentNfcTag);
+                return;
+            }
+            document.getElementById('ck-house-name').textContent = '标签未识别';
+            document.getElementById('ck-house-addr').textContent = `URL 中的标签 ${urlTag} 不存在，请检查写卡链接`;
+            currentNfcTag = null;
+            return;
+        }
         let tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
         if (tags.length === 0) {
             await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
             tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
         }
         currentNfcTag = tags[Math.floor(Math.random() * tags.length)];
-        document.getElementById('ck-house-name').textContent = currentNfcTag.address?.split('号')[0] + '号' || currentNfcTag.tagId;
-        document.getElementById('ck-house-addr').textContent = `标签: ${currentNfcTag.tagId} | ${currentNfcTag.tagType === 'HOUSE' ? '房源' : '门店'}`;
+        applyNfcTagToCheckinUI(currentNfcTag);
     } catch(e) { console.error(e); }
 }
 
@@ -832,8 +875,14 @@ function getScoreColor(s) { return s >= 120 ? 'var(--success)' : s >= 80 ? 'var(
 function getTypeIcon(t) { return { CHECK_IN:'🏠', INSPECT:'🔍', SIGNING:'✍️', OFFICE_IN:'💼', OFFICE_OUT:'🏃' }[t] || '📋'; }
 
 // ===== 初始化 =====
-loadHomeData();
-loadRoleConfigs();
+function bootstrapFromHash() {
+    const raw = (location.hash || '#home').replace(/^#/, '');
+    const page = (raw.split('?')[0] || 'home').trim() || 'home';
+    if (page && document.getElementById('page-' + page)) navigate(page);
+    else navigate('home');
+}
+window.addEventListener('hashchange', bootstrapFromHash);
+bootstrapFromHash();
 </script>
 </body>
 </html>

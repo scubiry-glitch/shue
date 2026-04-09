@@ -3,10 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { AttendanceRecord, RecordStatus, RecordType, SessionStatus } from './attendance-record.entity';
-import { NfcTag, TagStatus } from './nfc-tag.entity';
+import { NfcTag, TagStatus, TagType } from './nfc-tag.entity';
 import { CheckInDto, CheckOutDto } from './dto';
 import { UserRole } from '../users/user.entity';
 import { HouseService } from '../house/house.service';
+import { getDemoNfcTagDef } from './demo-nfc-tags';
 
 // ─── 业务规则常量 ──────────────────────────────────────────────────────────────
 
@@ -90,6 +91,13 @@ export class AttendanceService {
   ) {}
 
   // ─── 工具方法 ────────────────────────────────────────────────────────────────
+
+  /** 兼容 Date / 字符串时间戳，避免 .getTime 非函数导致 500 */
+  private toTimeMs(value: Date | string | null | undefined): number | null {
+    if (value == null) return null;
+    const t = value instanceof Date ? value.getTime() : new Date(value as string).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
 
   /** Haversine 距离（米） */
   calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -213,11 +221,29 @@ export class AttendanceService {
     });
   }
 
+  /** DB 优先；无记录时使用演示清单（与写卡 URL tag= 一致，免先 init） */
+  async findNfcTagByIdOrDemo(tagId: string): Promise<NfcTag | null> {
+    const row = await this.nfcTagRepo.findOne({ where: { tagId } });
+    if (row) return row;
+    const def = getDemoNfcTagDef(tagId);
+    if (!def) return null;
+    const t = new NfcTag();
+    t.tagId = def.tagId;
+    t.tagType = def.tagType === 'HOUSE' ? TagType.HOUSE : TagType.OFFICE;
+    t.houseId = def.houseId ?? null;
+    t.officeId = def.officeId ?? null;
+    t.lat = def.lat;
+    t.lng = def.lng;
+    t.address = def.address;
+    t.status = TagStatus.ACTIVE;
+    return t;
+  }
+
   // ─── 打卡 ──────────────────────────────────────────────────────────────────
 
   async checkIn(dto: CheckInDto): Promise<AttendanceRecord> {
-    // ① 验证 NFC 标签
-    const nfcTag = await this.nfcTagRepo.findOne({ where: { tagId: dto.nfcTagId } });
+    // ① 验证 NFC 标签（演示 tag 可仅存在于清单中）
+    const nfcTag = await this.findNfcTagByIdOrDemo(dto.nfcTagId);
     if (!nfcTag) throw new NotFoundException('NFC标签未注册');
 
     // BL-7：标签生命周期检查
@@ -278,7 +304,10 @@ export class AttendanceService {
       deviceId: dto.deviceId,
       deviceModel: dto.deviceModel,
       houseId: nfcTag.houseId,
-      houseName: nfcTag.address || (nfcTag.houseId ? `房源${nfcTag.houseId}` : null),
+      houseName:
+        getDemoNfcTagDef(dto.nfcTagId)?.name ||
+        nfcTag.address ||
+        (nfcTag.houseId ? `房源${nfcTag.houseId}` : null),
       checkInTime: new Date(),
       photos: dto.photos || [],
       role: dto.role || null,
@@ -423,20 +452,19 @@ export class AttendanceService {
 
     const openCount = records.filter(r => r.sessionStatus === SessionStatus.OPEN).length;
 
+    const checkInMs = records.map(r => this.toTimeMs(r.checkInTime)).filter((t): t is number => t != null);
+    const checkOutMs = records.map(r => this.toTimeMs(r.checkOutTime)).filter((t): t is number => t != null);
+
     return {
       totalCheckIns: records.length,
       verifiedCount: records.filter(r => r.nfcVerified).length,
       anomalyCount: records.filter(r => r.isAnomaly).length,
       openSessionCount: openCount,
       avgQualityScore: records.length
-        ? Math.round(records.reduce((s, r) => s + r.qualityScore, 0) / records.length)
+        ? Math.round(records.reduce((s, r) => s + (r.qualityScore ?? 0), 0) / records.length)
         : 0,
-      firstCheckIn: records.length
-        ? new Date(Math.min(...records.filter(r => r.checkInTime).map(r => r.checkInTime.getTime())))
-        : null,
-      lastCheckOut: records.filter(r => r.checkOutTime).length
-        ? new Date(Math.max(...records.filter(r => r.checkOutTime).map(r => r.checkOutTime.getTime())))
-        : null,
+      firstCheckIn: checkInMs.length ? new Date(Math.min(...checkInMs)) : null,
+      lastCheckOut: checkOutMs.length ? new Date(Math.max(...checkOutMs)) : null,
     };
   }
 

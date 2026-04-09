@@ -2,15 +2,8 @@ import { Controller, Post, Get, Body, Headers, Request, UnauthorizedException } 
 import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
-
-class MockLoginDto {
-  email: string;
-  password: string;
-}
-
-class SupabaseLoginDto {
-  supabaseToken: string;
-}
+import { MockLoginDto } from './dto/mock-login.dto';
+import { SupabaseLoginDto } from './dto/supabase-login.dto';
 
 @ApiTags('认证授权')
 @Controller('auth')
