@@ -20,16 +20,16 @@ function validateEnv() {
       throw new Error('[Fatal] 生产环境不允许使用默认 JWT_SECRET，请设置强随机密钥');
     }
 
-    if (process.env.AUTH_MODE === 'supabase' && !process.env.SUPABASE_JWT_SECRET) {
-      throw new Error('[Fatal] AUTH_MODE=supabase 时必须配置 SUPABASE_JWT_SECRET');
+    if (!process.env.SUPABASE_JWT_SECRET) {
+      throw new Error('[Fatal] 生产环境必须配置 SUPABASE_JWT_SECRET');
     }
   } else {
     // 开发环境仅提示
     if (!process.env.JWT_SECRET) {
       logger.warn('JWT_SECRET 未配置，使用开发默认值（生产环境禁止）');
     }
-    if (process.env.AUTH_MODE === 'supabase' && !process.env.SUPABASE_JWT_SECRET) {
-      logger.warn('AUTH_MODE=supabase 但未设置 SUPABASE_JWT_SECRET，Supabase 登录将不可用');
+    if (!process.env.SUPABASE_JWT_SECRET) {
+      logger.warn('SUPABASE_JWT_SECRET 未配置，/auth/login 将无法验证 Supabase token');
     }
   }
 }
@@ -71,7 +71,8 @@ async function bootstrap() {
 
   const logger = new Logger('Bootstrap');
   logger.log(`NFC考勤系统启动成功，端口: ${PORT}`);
-  logger.log(`认证模式: ${process.env.AUTH_MODE || 'mock'}`);
+  logger.log(`认证模式: Supabase JWT`);
+  logger.log(`Supabase 项目: ${process.env.SUPABASE_URL || '(未配置)'}`);
   logger.log(`环境: ${process.env.NODE_ENV || 'development'}`);
   logger.log(`API文档: http://localhost:${PORT}/api-docs`);
 }

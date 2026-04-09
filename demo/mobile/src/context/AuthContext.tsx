@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { APP_MODE, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config';
 import { TOKEN_KEY, REFRESH_TOKEN_KEY } from '../api';
 
 export type UserRole =
@@ -27,10 +27,7 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  /** Mock模式：用email+password登录 */
-  mockLogin: (email: string, password: string) => Promise<void>;
-  /** Supabase模式：启动Supabase OAuth / email登录 */
-  supabaseLogin: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
 }
@@ -47,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: false,
   });
 
-  // Restore session on mount
+  // 恢复 session
   useEffect(() => {
     (async () => {
       try {
@@ -56,8 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(USER_KEY),
         ]);
         if (token && userJson) {
-          const user: AuthUser = JSON.parse(userJson);
-          setState({ user, token, isLoading: false, isAuthenticated: true });
+          setState({ user: JSON.parse(userJson), token, isLoading: false, isAuthenticated: true });
         } else {
           setState(s => ({ ...s, isLoading: false }));
         }
@@ -65,15 +61,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState(s => ({ ...s, isLoading: false }));
       }
     })();
-  }, []);
-
-  // 监听 API 层抛出的 SESSION_EXPIRED 事件，强制退出登录
-  useEffect(() => {
-    const originalHandler = (ErrorUtils as any)?.getGlobalHandler?.();
-    // 注：生产代码应用事件总线（EventEmitter）替代全局错误监听
-    return () => {
-      if (originalHandler) (ErrorUtils as any)?.setGlobalHandler?.(originalHandler);
-    };
   }, []);
 
   const persistSession = async (token: string, refreshToken: string, user: AuthUser) => {
@@ -85,26 +72,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState({ user, token, isLoading: false, isAuthenticated: true });
   };
 
-  // ─── Mock login ──────────────────────────────────────────────────────────
-  const mockLogin = useCallback(async (email: string, password: string) => {
-    const { API_BASE_URL } = await import('../config');
-    const response = await fetch(`${API_BASE_URL}/auth/mock/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.message || '登录失败');
-    }
-    const data = await response.json();
-    await persistSession(data.token, data.refreshToken, data.user);
-  }, []);
-
-  // ─── Supabase login ───────────────────────────────────────────────────────
-  const supabaseLogin = useCallback(async (email: string, password: string) => {
-    // Step 1: Authenticate with Supabase
-    const supabaseResponse = await fetch(
+  /**
+   * 登录流程（Supabase）：
+   * 1. 向 Supabase Auth 做 email/password 认证 → 获取 Supabase access_token
+   * 2. 将 Supabase token 发给后端 /auth/login → 获取 App JWT
+   */
+  const login = useCallback(async (email: string, password: string) => {
+    // Step 1: Supabase 认证
+    const supabaseRes = await fetch(
       `${SUPABASE_URL}/auth/v1/token?grant_type=password`,
       {
         method: 'POST',
@@ -116,47 +91,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     );
 
-    if (!supabaseResponse.ok) {
-      const err = await supabaseResponse.json().catch(() => ({}));
-      throw new Error(err.error_description || err.message || 'Supabase登录失败');
+    if (!supabaseRes.ok) {
+      const err = await supabaseRes.json().catch(() => ({}));
+      throw new Error(err.error_description || err.message || 'Supabase 登录失败');
     }
 
-    const supabaseData = await supabaseResponse.json();
-    const supabaseToken: string = supabaseData.access_token;
+    const { access_token: supabaseToken } = await supabaseRes.json();
 
-    // Step 2: Exchange Supabase token for our app token
+    // Step 2: 换取 App JWT
     const { API_BASE_URL } = await import('../config');
-    const appResponse = await fetch(`${API_BASE_URL}/auth/supabase/login`, {
+    const appRes = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ supabaseToken }),
     });
 
-    if (!appResponse.ok) {
-      const err = await appResponse.json().catch(() => ({}));
+    if (!appRes.ok) {
+      const err = await appRes.json().catch(() => ({}));
       throw new Error(err.message || '应用登录失败');
     }
 
-    const appData = await appResponse.json();
-    await persistSession(appData.token, appData.refreshToken, appData.user);
+    const { token, refreshToken, user } = await appRes.json();
+    await persistSession(token, refreshToken, user);
   }, []);
 
-  // ─── Logout ───────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]);
     setState({ user: null, token: null, isLoading: false, isAuthenticated: false });
   }, []);
 
-  // ─── Permission check ─────────────────────────────────────────────────────
   const hasPermission = useCallback(
-    (permission: string) => {
-      return state.user?.permissions?.includes(permission) ?? false;
-    },
+    (permission: string) => state.user?.permissions?.includes(permission) ?? false,
     [state.user],
   );
 
   return (
-    <AuthContext.Provider value={{ ...state, mockLogin, supabaseLogin, logout, hasPermission }}>
+    <AuthContext.Provider value={{ ...state, login, logout, hasPermission }}>
       {children}
     </AuthContext.Provider>
   );

@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { APP_MODE } from '../config';
 import { useNfc } from '../hooks/useNfc';
 import { enqueueCheckIn, syncQueue, getPendingCount } from '../services/offlineQueue';
 import {
@@ -54,22 +53,17 @@ const ROLE_LABELS: Record<string, string> = {
   ASSET_MANAGER: '资管经理',
 };
 
-/**
- * 真实模式下：records 为空，直到用户完成一次打卡后才展示卡片
- * Mock 模式下：records 页面加载时即从 API 拉取并展示
- */
 export default function HomeScreen() {
   const { user, logout } = useAuth();
   const [records, setRecords] = useState<CheckInRecord[]>([]);
   const [stats, setStats] = useState<TodayStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [deviceId] = useState(() => generateDeviceId());
-  // 真实模式：只有打卡成功后才展示房源卡片
+  // 房源卡片只在打卡成功后显示
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
-
-  const isRealMode = APP_MODE === 'real';
-  const { isNfcSupported, isScanning, readNfcTag } = useNfc();
   const [pendingCount, setPendingCount] = useState(0);
+
+  const { isNfcSupported, isScanning, readNfcTag } = useNfc();
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -82,24 +76,20 @@ export default function HomeScreen() {
       setRecords(recordsData.slice(0, 10));
       setStats(statsData);
     } catch {
-      Alert.alert('错误', '加载数据失败');
+      // 静默失败，不影响主流程
     } finally {
       setLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
-    // Mock 模式：立即加载数据（含房源卡片）
-    // 真实模式：只加载统计，不预先展示房源卡片
-    if (!isRealMode) {
-      loadData();
-    } else if (user) {
+    if (user) {
       api.getTodayStats(user.id)
         .then(data => setStats(data))
         .catch(() => {});
     }
 
-    // 启动时同步离线队列并更新待上传数
+    // 启动时同步离线队列
     getPendingCount().then(setPendingCount);
     syncQueue().then(result => {
       if (result.success > 0) {
@@ -108,65 +98,47 @@ export default function HomeScreen() {
         loadData();
       }
     }).catch(() => {});
-  }, [isRealMode, user]);
+  }, [user]);
 
-  // NFC 打卡（真实 / 模拟两用）
-  const simulateCheckIn = async () => {
+  const handleCheckIn = async () => {
     if (!user) return;
+
+    if (!isNfcSupported) {
+      Alert.alert('NFC 不可用', '当前设备不支持 NFC，无法打卡');
+      return;
+    }
+
     try {
       setLoading(true);
+      Alert.alert('NFC 打卡', '请将手机靠近房源 NFC 标签...');
+      const { tagId } = await readNfcTag();
+      if (!tagId) {
+        Alert.alert('打卡失败', '未能读取 NFC 标签，请重试');
+        return;
+      }
 
-      let nfcTagId: string;
-      let gpsLat: number;
-      let gpsLng: number;
-      let gpsAccuracy: number;
-
-      if (isRealMode && isNfcSupported) {
-        // ── 真实模式：读取 NFC 标签 ──────────────────────────────────────────
-        Alert.alert('NFC 打卡', '请将手机靠近房源 NFC 标签...');
-        const { tagId } = await readNfcTag();
-        if (!tagId) {
-          Alert.alert('打卡失败', '未能读取 NFC 标签，请重试');
-          return;
-        }
-        nfcTagId = tagId;
-        // 真实定位（此处使用 Geolocation，已在 package.json 中声明）
-        gpsLat = 0;
-        gpsLng = 0;
-        gpsAccuracy = 999;
-        try {
-          const { Geolocation } = await import('@react-native-community/geolocation');
-          await new Promise<void>((resolve, reject) => {
-            Geolocation.getCurrentPosition(
-              pos => {
-                gpsLat = pos.coords.latitude;
-                gpsLng = pos.coords.longitude;
-                gpsAccuracy = pos.coords.accuracy;
-                resolve();
-              },
-              reject,
-              { timeout: 5000, maximumAge: 10000 },
-            );
-          });
-        } catch {
-          // GPS 获取失败时继续打卡，后端会标记为异常
-        }
-      } else {
-        // ── Mock 模式：随机选取标签 ─────────────────────────────────────────
-        const tags = await api.getNfcTags();
-        if (tags.length === 0) {
-          await api.initNfcTags();
-        }
-        const activeTags = await api.getNfcTags();
-        const randomTag = activeTags[Math.floor(Math.random() * activeTags.length)];
-        nfcTagId = randomTag.tagId;
-        gpsLat = randomTag.lat + (Math.random() - 0.5) * 0.001;
-        gpsLng = randomTag.lng + (Math.random() - 0.5) * 0.001;
-        gpsAccuracy = 5 + Math.random() * 15;
+      // 获取 GPS
+      let gpsLat = 0, gpsLng = 0, gpsAccuracy = 999;
+      try {
+        const { Geolocation } = await import('@react-native-community/geolocation');
+        await new Promise<void>((resolve, reject) => {
+          Geolocation.getCurrentPosition(
+            pos => {
+              gpsLat = pos.coords.latitude;
+              gpsLng = pos.coords.longitude;
+              gpsAccuracy = pos.coords.accuracy;
+              resolve();
+            },
+            reject,
+            { timeout: 5000, maximumAge: 10000 },
+          );
+        });
+      } catch {
+        // GPS 获取失败时继续打卡，后端会标记为低精度异常
       }
 
       const checkInData = {
-        nfcTagId,
+        nfcTagId: tagId,
         userId: user.id,
         userName: user.name,
         recordType: 'CHECK_IN',
@@ -174,33 +146,25 @@ export default function HomeScreen() {
         gpsLng,
         gpsAccuracy,
         deviceId,
-        deviceModel: 'iPhone 14 Pro',
+        deviceModel: 'Mobile',
         photos: [],
       };
 
-      let result: any;
       try {
-        result = await api.checkIn(checkInData);
+        const result = await api.checkIn(checkInData);
         Alert.alert(
           '打卡成功',
-          `房源: ${result.houseName || '未知'}\n质量评分: ${result.qualityScore}分\n${result.isAnomaly ? '⚠️ ' + result.anomalyReason : ''}`,
+          `房源: ${result.houseName || '未知'}\n质量评分: ${result.qualityScore}分${result.isAnomaly ? '\n⚠️ ' + result.anomalyReason : ''}`,
         );
+        setHasCheckedIn(true);
+        loadData();
       } catch (netErr: any) {
         // 网络失败 → 写入离线队列
         await enqueueCheckIn(checkInData);
         const count = await getPendingCount();
         setPendingCount(count);
-        Alert.alert(
-          '网络不可用',
-          `打卡数据已本地保存，恢复网络后将自动上传（待上传: ${count} 条）`,
-        );
+        Alert.alert('网络不可用', `打卡数据已本地保存，恢复网络后自动上传（待上传: ${count} 条）`);
       }
-
-      // 真实模式：打卡成功后才展示房源卡片并加载数据
-      if (isRealMode) {
-        setHasCheckedIn(true);
-      }
-      loadData();
     } catch (error: any) {
       Alert.alert('打卡失败', error.message);
     } finally {
@@ -208,7 +172,7 @@ export default function HomeScreen() {
     }
   };
 
-  const simulateCheckOut = async (recordId: string) => {
+  const handleCheckOut = async (recordId: string) => {
     try {
       setLoading(true);
       const result = await api.checkOut(recordId);
@@ -221,9 +185,6 @@ export default function HomeScreen() {
     }
   };
 
-  // 真实模式下是否展示房源记录卡片
-  const showRecords = !isRealMode || hasCheckedIn;
-
   return (
     <ScrollView style={styles.container}>
       {/* 头部 */}
@@ -232,7 +193,7 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.title}>租务管家 NFC考勤</Text>
             <Text style={styles.subtitle}>
-              欢迎, {user?.name}
+              欢迎，{user?.name}
               {user?.role ? `（${ROLE_LABELS[user.role] || user.role}）` : ''}
             </Text>
           </View>
@@ -240,21 +201,14 @@ export default function HomeScreen() {
             <Text style={styles.logoutText}>退出</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.headerBadges}>
-          <View style={styles.modeBadge}>
-            <Text style={styles.modeText}>
-              {isRealMode ? '正式模式' : 'Mock 模式'}
-            </Text>
+        {pendingCount > 0 && (
+          <View style={styles.pendingBadge}>
+            <Text style={styles.pendingText}>离线待上传 {pendingCount} 条</Text>
           </View>
-          {pendingCount > 0 && (
-            <View style={styles.pendingBadge}>
-              <Text style={styles.pendingText}>离线待上传 {pendingCount} 条</Text>
-            </View>
-          )}
-        </View>
+        )}
       </View>
 
-      {/* 今日统计卡片 */}
+      {/* 今日统计 */}
       {stats && (
         <View style={styles.statsCard}>
           <Text style={styles.cardTitle}>今日统计</Text>
@@ -287,11 +241,11 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* NFC打卡按钮 */}
+      {/* NFC 打卡按钮 */}
       <TouchableOpacity
-        style={[styles.checkInButton, (loading || isScanning) && styles.disabledButton]}
-        onPress={simulateCheckIn}
-        disabled={loading || isScanning}
+        style={[styles.checkInButton, (loading || isScanning || !isNfcSupported) && styles.disabledButton]}
+        onPress={handleCheckIn}
+        disabled={loading || isScanning || !isNfcSupported}
       >
         {loading || isScanning ? (
           <>
@@ -302,40 +256,32 @@ export default function HomeScreen() {
           <>
             <Text style={styles.checkInButtonIcon}>📱</Text>
             <Text style={styles.checkInButtonText}>
-              {isRealMode && isNfcSupported ? 'NFC 打卡' : isRealMode ? 'NFC 不可用' : '模拟 NFC 打卡'}
+              {isNfcSupported ? 'NFC 打卡' : 'NFC 不可用'}
             </Text>
             <Text style={styles.checkInButtonSub}>
-              {isRealMode
-                ? isNfcSupported
-                  ? '靠近房源NFC标签打卡，打卡后显示房源信息'
-                  : '当前设备不支持 NFC'
-                : '靠近房源NFC标签即可打卡'}
+              {isNfcSupported ? '靠近房源 NFC 标签打卡，打卡后显示房源信息' : '当前设备不支持 NFC'}
             </Text>
           </>
         )}
       </TouchableOpacity>
 
-      {/* 真实模式下：打卡前的提示 */}
-      {isRealMode && !hasCheckedIn && (
-        <View style={styles.realModeHint}>
-          <Text style={styles.realModeHintIcon}>🔒</Text>
-          <Text style={styles.realModeHintText}>
-            打卡成功后将显示房源信息
-          </Text>
-          <Text style={styles.realModeHintSub}>
-            请靠近房源 NFC 标签完成打卡
-          </Text>
+      {/* 打卡前提示（未打卡时显示） */}
+      {!hasCheckedIn && (
+        <View style={styles.hintCard}>
+          <Text style={styles.hintIcon}>🔒</Text>
+          <Text style={styles.hintText}>打卡成功后将显示房源信息</Text>
+          <Text style={styles.hintSub}>请靠近房源 NFC 标签完成打卡</Text>
         </View>
       )}
 
-      {/* 今日记录列表（mock模式始终显示，真实模式打卡后显示） */}
-      {showRecords && (
+      {/* 今日记录列表（打卡成功后显示） */}
+      {hasCheckedIn && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>今日打卡记录</Text>
           {records.length === 0 ? (
             <Text style={styles.emptyText}>今天还没有打卡记录</Text>
           ) : (
-            records.map((record) => (
+            records.map(record => (
               <View
                 key={record.id}
                 style={[styles.recordCard, record.isAnomaly && styles.anomalyCard]}
@@ -346,27 +292,22 @@ export default function HomeScreen() {
                     {record.qualityScore}分
                   </Text>
                 </View>
-
                 <Text style={styles.houseName}>{record.houseName || record.nfcTagId}</Text>
-
                 <View style={styles.recordInfo}>
                   <Text style={styles.infoText}>到达: {formatTime(record.checkInTime)}</Text>
                   <Text style={styles.infoText}>离开: {formatTime(record.checkOutTime)}</Text>
                 </View>
-
                 <View style={styles.recordFooter}>
                   <Text style={styles.statusText}>{getStatusText(record.status)}</Text>
                   <Text style={styles.durationText}>{formatDuration(record.durationSeconds)}</Text>
                 </View>
-
                 {record.isAnomaly && (
                   <Text style={styles.anomalyText}>⚠️ {record.anomalyReason}</Text>
                 )}
-
                 {!record.checkOutTime && (
                   <TouchableOpacity
                     style={styles.checkOutButton}
-                    onPress={() => simulateCheckOut(record.id)}
+                    onPress={() => handleCheckOut(record.id)}
                     disabled={loading}
                   >
                     <Text style={styles.checkOutButtonText}>签退</Text>
@@ -375,14 +316,10 @@ export default function HomeScreen() {
               </View>
             ))
           )}
+          <TouchableOpacity style={styles.refreshButton} onPress={loadData}>
+            <Text style={styles.refreshText}>刷新数据</Text>
+          </TouchableOpacity>
         </View>
-      )}
-
-      {/* 刷新按钮（只在有内容时显示） */}
-      {showRecords && (
-        <TouchableOpacity style={styles.refreshButton} onPress={loadData}>
-          <Text style={styles.refreshText}>刷新数据</Text>
-        </TouchableOpacity>
       )}
     </ScrollView>
   );
@@ -390,16 +327,8 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
-  header: {
-    backgroundColor: '#3b82f6',
-    padding: 20,
-    paddingTop: 50,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
+  header: { backgroundColor: '#3b82f6', padding: 20, paddingTop: 50 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   title: { fontSize: 22, fontWeight: 'bold', color: '#fff' },
   subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 4 },
   logoutButton: {
@@ -407,22 +336,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 16,
-    marginTop: 2,
   },
   logoutText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  headerBadges: { flexDirection: 'row', marginTop: 10, gap: 8, flexWrap: 'wrap' },
-  modeBadge: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  modeText: { color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: '500' },
   pendingBadge: {
     backgroundColor: '#f59e0b',
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 12,
+    marginTop: 10,
+    alignSelf: 'flex-start',
   },
   pendingText: { color: '#fff', fontSize: 11, fontWeight: '600' },
   statsCard: {
@@ -432,7 +354,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
   },
@@ -462,11 +384,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  disabledButton: { backgroundColor: '#9ca3af' },
+  disabledButton: { backgroundColor: '#9ca3af', shadowOpacity: 0 },
   checkInButtonIcon: { fontSize: 48, marginBottom: 8 },
   checkInButtonText: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
   checkInButtonSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 4, textAlign: 'center' },
-  realModeHint: {
+  hintCard: {
     backgroundColor: '#fffbeb',
     borderWidth: 1,
     borderColor: '#fde68a',
@@ -475,9 +397,9 @@ const styles = StyleSheet.create({
     padding: 20,
     alignItems: 'center',
   },
-  realModeHintIcon: { fontSize: 36, marginBottom: 8 },
-  realModeHintText: { fontSize: 16, fontWeight: '600', color: '#92400e' },
-  realModeHintSub: { fontSize: 13, color: '#b45309', marginTop: 4 },
+  hintIcon: { fontSize: 36, marginBottom: 8 },
+  hintText: { fontSize: 16, fontWeight: '600', color: '#92400e' },
+  hintSub: { fontSize: 13, color: '#b45309', marginTop: 4 },
   section: { padding: 15 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 10, color: '#333' },
   emptyText: { textAlign: 'center', color: '#999', padding: 30, fontSize: 14 },
@@ -488,17 +410,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 2,
     elevation: 2,
   },
   anomalyCard: { borderLeftWidth: 4, borderLeftColor: '#ef4444' },
-  recordHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
+  recordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   recordType: { fontSize: 14, fontWeight: '600', color: '#333' },
   qualityScore: { fontSize: 16, fontWeight: 'bold' },
   houseName: { fontSize: 16, fontWeight: '500', color: '#3b82f6', marginBottom: 8 },
@@ -526,10 +443,10 @@ const styles = StyleSheet.create({
   checkOutButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
   refreshButton: {
     backgroundColor: '#e5e7eb',
-    margin: 15,
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
+    marginTop: 10,
     marginBottom: 30,
   },
   refreshText: { color: '#374151', fontWeight: '600' },

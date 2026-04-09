@@ -1,12 +1,7 @@
-import { Controller, Post, Get, Body, Headers, Request, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Request, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
-
-class MockLoginDto {
-  email: string;
-  password: string;
-}
 
 class SupabaseLoginDto {
   supabaseToken: string;
@@ -18,58 +13,22 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   /**
-   * 获取当前认证模式（mock | supabase）
+   * 移动端用 Supabase access_token 换取 App JWT
+   * 流程: 移动端 → Supabase Auth → supabaseToken → POST /auth/login → App JWT
    */
   @Public()
-  @Get('mode')
-  @ApiOperation({ summary: '获取认证模式' })
-  getAuthMode() {
-    return { mode: this.authService.authMode };
-  }
-
-  /**
-   * Mock 模式登录（仅 AUTH_MODE=mock 有效）
-   */
-  @Public()
-  @Post('mock/login')
-  @ApiOperation({ summary: 'Mock模式登录' })
-  @ApiBody({ type: MockLoginDto })
-  async mockLogin(@Body() dto: MockLoginDto) {
-    if (this.authService.authMode !== 'mock') {
-      throw new UnauthorizedException('当前不是mock模式，请使用Supabase登录');
-    }
-    return this.authService.mockLogin(dto.email, dto.password);
-  }
-
-  /**
-   * 获取 Mock 用户列表（仅 AUTH_MODE=mock 有效，供前端展示快速登录）
-   */
-  @Public()
-  @Get('mock/users')
-  @ApiOperation({ summary: '获取Mock用户列表' })
-  getMockUsers() {
-    if (this.authService.authMode !== 'mock') {
-      return { users: [] };
-    }
-    return { users: this.authService.getMockUserList() };
-  }
-
-  /**
-   * Supabase 模式登录：传入 Supabase JWT，换取系统 JWT
-   */
-  @Public()
-  @Post('supabase/login')
-  @ApiOperation({ summary: 'Supabase模式登录（传入Supabase JWT）' })
+  @Post('login')
+  @ApiOperation({ summary: '登录（传入 Supabase access_token）' })
   @ApiBody({ type: SupabaseLoginDto })
-  async supabaseLogin(@Body() dto: SupabaseLoginDto) {
-    if (this.authService.authMode !== 'supabase') {
-      throw new UnauthorizedException('当前不是supabase模式，请使用mock登录');
+  async login(@Body() dto: SupabaseLoginDto) {
+    if (!dto.supabaseToken) {
+      throw new UnauthorizedException('supabaseToken 不能为空');
     }
-    return this.authService.validateSupabaseToken(dto.supabaseToken);
+    return this.authService.loginWithSupabaseToken(dto.supabaseToken);
   }
 
   /**
-   * 使用 refreshToken 换取新的 accessToken
+   * 用 refreshToken 换取新的 accessToken
    */
   @Public()
   @Post('refresh')
@@ -87,7 +46,7 @@ export class AuthController {
    */
   @Get('me')
   @ApiBearerAuth()
-  @ApiOperation({ summary: '获取当前登录用户信息' })
+  @ApiOperation({ summary: '获取当前登录用户' })
   getMe(@Request() req: any) {
     const user = req.user;
     return {
