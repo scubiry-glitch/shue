@@ -14,4 +14,4 @@ export const SUPABASE_URL: string =
   process.env['SUPABASE_URL'] || 'https://xmbwbjqezgrybpfbtqba.supabase.co';
 
 export const SUPABASE_ANON_KEY: string =
-  process.env['SUPABASE_ANON_KEY'] || '';
+  process.env['SUPABASE_ANON_KEY'] || 'sb_publishable_u6vCC2KS4lD2qKIdb5lhQg_s1DZ_721';
