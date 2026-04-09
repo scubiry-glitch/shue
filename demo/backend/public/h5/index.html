@@ -460,6 +460,41 @@
 const API_BASE = window.location.origin;
 const USER = { id: 'user_001', name: '张管家' };
 let currentPage = 'home';
+const AUTH_STORAGE_KEY = 'nfc_h5_jwt';
+let authReadyPromise = null;
+
+async function ensureAuth() {
+    const existing = sessionStorage.getItem(AUTH_STORAGE_KEY);
+    if (existing) return existing;
+    if (!authReadyPromise) {
+        authReadyPromise = (async () => {
+            const modeRes = await fetch(`${API_BASE}/auth/mode`);
+            const modeData = await modeRes.json().catch(() => ({}));
+            if (modeData.mode !== 'mock') return null;
+            const res = await fetch(`${API_BASE}/auth/mock/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'zhangsan@demo.com', password: '123456' }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.token) return null;
+            sessionStorage.setItem(AUTH_STORAGE_KEY, data.token);
+            return data.token;
+        })();
+    }
+    return authReadyPromise;
+}
+
+async function apiFetch(path, options = {}) {
+    const token = await ensureAuth();
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set('Authorization', 'Bearer ' + token);
+    const res = await fetch(path.startsWith('http') ? path : `${API_BASE}${path}`, { ...options, headers });
+    if (res.status === 401) {
+        console.warn('接口鉴权失败(401)：', path);
+    }
+    return res;
+}
 
 // ===== 导航 =====
 function navigate(page) {
@@ -489,8 +524,9 @@ function navigate(page) {
 // ===== 首页数据加载 =====
 async function loadHomeData() {
     try {
-        const res = await fetch(`${API_BASE}/attendance/stats/today?userId=${USER.id}`);
+        const res = await apiFetch(`/attendance/stats/today?userId=${USER.id}`);
         const data = await res.json();
+        if (!res.ok) return;
         document.getElementById('home-checkin-count').textContent = data.totalCheckIns || 0;
         document.getElementById('home-showing').textContent = data.verifiedCount || 0;
         document.getElementById('home-inspect').textContent = '0';
@@ -510,13 +546,23 @@ let selectedTask = null;
 let currentNfcTag = null;
 
 async function loadRoleConfigs() {
+    const sel = document.getElementById('ck-role');
     try {
-        roleConfigs = await (await fetch(`${API_BASE}/roles/config`)).json();
-        const sel = document.getElementById('ck-role');
+        const res = await fetch(`${API_BASE}/roles/config`);
+        const data = await res.json();
+        if (!res.ok || !Array.isArray(data)) {
+            console.error('加载角色配置失败', res.status, data);
+            sel.innerHTML = '<option value="">加载失败，请刷新</option>';
+            return;
+        }
+        roleConfigs = data;
         sel.innerHTML = roleConfigs.map(r => `<option value="${r.roleCode}">${r.icon} ${r.roleName}</option>`).join('');
         selectedRole = roleConfigs[0]?.roleCode || '';
         onRoleChange();
-    } catch(e) { console.error('加载角色配置失败', e); }
+    } catch(e) {
+        console.error('加载角色配置失败', e);
+        sel.innerHTML = '<option value="">网络错误，请刷新</option>';
+    }
 }
 
 function onRoleChange() {
@@ -595,12 +641,8 @@ function collectTaskData() {
 async function doMultiRoleCheckIn() {
     if (!selectedTask) return;
     try {
-        let tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
-        if (tags.length === 0) {
-            await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
-            tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
-        }
-        let tag = currentNfcTag || tags[Math.floor(Math.random() * tags.length)];
+        if (!currentNfcTag) await simulateNfcScan();
+        let tag = currentNfcTag;
         if (!tag) {
             alert('未识别 NFC 标签，请使用写卡链接打开本页');
             return;
@@ -624,7 +666,7 @@ async function doMultiRoleCheckIn() {
             gpsAccuracy = 999;
         }
 
-        const res = await fetch(`${API_BASE}/attendance/checkin`, {
+        const res = await apiFetch(`/attendance/checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -638,6 +680,10 @@ async function doMultiRoleCheckIn() {
             })
         });
         const data = await res.json();
+        if (!res.ok) {
+            alert('打卡失败: ' + (data.message || data.error || res.status));
+            return;
+        }
 
         let msg = `${selectedTask.name}打卡成功!\n`;
         msg += `房源: ${data.houseName || tag.name || tag.address}\n`;
@@ -692,12 +738,26 @@ async function simulateNfcScan() {
             currentNfcTag = null;
             return;
         }
-        let tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
-        if (tags.length === 0) {
-            await fetch(`${API_BASE}/attendance/nfc-tags/init`, { method: 'POST' });
-            tags = await (await fetch(`${API_BASE}/attendance/nfc-tags`)).json();
+        // 无写卡链接时，用公开房源列表中“已绑定标签”的房源做演示回退，避免访问受保护接口 /attendance/nfc-tags
+        const housesRes = await fetch(`${API_BASE}/attendance/nfc-tags/houses`);
+        const houses = await housesRes.json().catch(() => []);
+        const bound = Array.isArray(houses) ? houses.filter(h => h.bound && h.boundTagId) : [];
+        if (!bound.length) {
+            document.getElementById('ck-house-name').textContent = '请先刷NFC标签';
+            document.getElementById('ck-house-addr').textContent = '未检测到可用绑定标签，请使用写卡链接打开本页';
+            currentNfcTag = null;
+            return;
         }
-        currentNfcTag = tags[Math.floor(Math.random() * tags.length)];
+        const h = bound[Math.floor(Math.random() * bound.length)];
+        currentNfcTag = {
+            tagId: h.boundTagId,
+            tagType: 'HOUSE',
+            address: h.address,
+            lat: h.lat,
+            lng: h.lng,
+            houseId: h.houseId,
+            name: h.name,
+        };
         applyNfcTagToCheckinUI(currentNfcTag);
     } catch(e) { console.error(e); }
 }
@@ -705,9 +765,13 @@ async function simulateNfcScan() {
 async function loadCheckinToday() {
     try {
         const today = new Date().toISOString().slice(0, 10);
-        const res = await fetch(`${API_BASE}/attendance/records?userId=${USER.id}&startDate=${today}`);
+        const res = await apiFetch(`/attendance/records?userId=${USER.id}&startDate=${today}`);
         const records = await res.json();
         const container = document.getElementById('checkin-today-list');
+        if (!res.ok || !Array.isArray(records)) {
+            container.innerHTML = `<div class="empty-state">加载失败: ${records?.message || res.status}</div>`;
+            return;
+        }
         if (!records.length) {
             container.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i>暂无打卡记录</div>';
             return;
@@ -734,8 +798,12 @@ async function loadCheckinToday() {
 let currentFilter = 'all';
 async function loadRecords() {
     try {
-        const res = await fetch(`${API_BASE}/attendance/records?userId=${USER.id}`);
+        const res = await apiFetch(`/attendance/records?userId=${USER.id}`);
         let records = await res.json();
+        if (!res.ok || !Array.isArray(records)) {
+            document.getElementById('records-list').innerHTML = `<div class="empty-state">加载失败: ${records?.message || res.status}</div>`;
+            return;
+        }
         if (currentFilter !== 'all') records = records.filter(r => r.recordType === currentFilter);
 
         const container = document.getElementById('records-list');
@@ -771,11 +839,15 @@ function filterRecords(type) {
 
 async function doCheckOut(recordId) {
     try {
-        const res = await fetch(`${API_BASE}/attendance/checkout`, {
+        const res = await apiFetch(`/attendance/checkout`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ recordId })
         });
         const data = await res.json();
+        if (!res.ok) {
+            alert('签退失败: ' + (data.message || data.error || res.status));
+            return;
+        }
         alert(`签退成功! 停留: ${formatDuration(data.durationSeconds)}`);
         loadRecords();
     } catch(e) { alert('签退失败'); }

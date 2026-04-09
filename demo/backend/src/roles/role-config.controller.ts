@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator';
 
 // 角色配置（生产环境从 role_configs 表读取）
 const ROLE_CONFIGS = [
@@ -79,6 +80,8 @@ const ROLE_CONFIGS = [
   },
 ];
 
+/** H5 打卡页在未登录时也需要拉取角色/任务配置 */
+@Public()
 @ApiTags('角色配置')
 @Controller('roles')
 export class RoleConfigController {

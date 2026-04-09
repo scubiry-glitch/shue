@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AttendanceRecord } from '../attendance/attendance-record.entity';
+import { Public } from '../auth/public.decorator';
 
 @ApiTags('多角色统计')
 @Controller('stats')
@@ -13,6 +14,7 @@ export class StatsController {
   ) {}
 
   @Get('house')
+  @Public()
   @ApiOperation({ summary: '房源多角色打卡统计' })
   async getHouseStats(@Query('houseId') houseId?: string, @Query('period') period?: string) {
     const query = this.recordRepo.createQueryBuilder('r')
@@ -56,6 +58,7 @@ export class StatsController {
   }
 
   @Get('empty-views')
+  @Public()
   @ApiOperation({ summary: '经纪人空看统计' })
   async getEmptyViewStats(@Query('houseId') houseId?: string) {
     const query = this.recordRepo.createQueryBuilder('r')
@@ -93,6 +96,7 @@ export class StatsController {
   }
 
   @Get('by-role')
+  @Public()
   @ApiOperation({ summary: '按角色统计任务完成情况' })
   async getStatsByRole(@Query('role') role: string, @Query('period') period?: string) {
     const query = this.recordRepo.createQueryBuilder('r')

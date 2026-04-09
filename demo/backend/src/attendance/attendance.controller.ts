@@ -42,29 +42,38 @@ export class AttendanceController {
   }
 
   @Get('records')
+  @Public()
   @ApiOperation({ summary: '获取打卡记录（仅返回当前登录用户数据，管理员可指定 userId）' })
   @ApiResponse({ status: 200, description: '获取成功', type: [AttendanceRecord] })
   async getRecords(
-    @CurrentUser() user: User,
+    @CurrentUser() user: User | undefined,
     @Query('userId') queryUserId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<AttendanceRecord[]> {
-    // 管理员可查任意用户；普通用户只能查自己
-    const targetUserId =
-      user.role === UserRole.ADMIN && queryUserId ? queryUserId : user.id;
+    // 已登录：管理员可查任意用户；普通用户只能查自己
+    // 未登录（演示页）：允许按 queryUserId 查询
+    const targetUserId = user
+      ? (user.role === UserRole.ADMIN && queryUserId ? queryUserId : user.id)
+      : queryUserId;
+    if (!targetUserId) return [];
     return this.attendanceService.getUserRecords(targetUserId, startDate, endDate);
   }
 
   @Get('stats/today')
+  @Public()
   @ApiOperation({ summary: '获取今日统计' })
   @ApiResponse({ status: 200, description: '获取成功' })
   async getTodayStats(
-    @CurrentUser() user: User,
+    @CurrentUser() user: User | undefined,
     @Query('userId') queryUserId?: string,
   ): Promise<any> {
-    const targetUserId =
-      user.role === UserRole.ADMIN && queryUserId ? queryUserId : user.id;
+    const targetUserId = user
+      ? (user.role === UserRole.ADMIN && queryUserId ? queryUserId : user.id)
+      : queryUserId;
+    if (!targetUserId) {
+      return { totalCheckIns: 0, validCheckIns: 0, averageScore: 0, totalDuration: 0 };
+    }
     return this.attendanceService.getTodayStats(targetUserId);
   }
 

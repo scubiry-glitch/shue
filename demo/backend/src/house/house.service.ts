@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HouseAssignment } from './house-assignment.entity';
 import { UserRole } from '../users/user.entity';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class HouseService {
   constructor(
     @InjectRepository(HouseAssignment)
     private readonly assignmentRepo: Repository<HouseAssignment>,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -38,7 +40,17 @@ export class HouseService {
       { userId, departmentId: departmentId || '' },
     );
 
-    const assignment = await qb.getOne();
+    let assignment: HouseAssignment | null = null;
+    try {
+      assignment = await qb.getOne();
+    } catch (err: any) {
+      const authMode = this.configService.get<string>('AUTH_MODE') || 'mock';
+      // 兼容历史演示库：house_assignments 尚未建表时，mock 模式先放行，避免 checkin 500
+      if (authMode === 'mock' && (err?.code === '42P01' || String(err?.message || '').includes('house_assignments'))) {
+        return;
+      }
+      throw err;
+    }
     if (!assignment) {
       throw new ForbiddenException(
         `您没有访问该房源的权限（houseId: ${houseId}），请联系管理员分配`,

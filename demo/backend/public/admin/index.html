@@ -275,6 +275,7 @@
             <div style="display:flex;gap:8px;">
                 <input type="text" placeholder="搜索房源名称/地址..." style="padding:6px 12px;border:1px solid #d9d9d9;border-radius:6px;">
                 <button class="btn btn-primary btn-sm"><i class="fas fa-plus" style="margin-right:4px;"></i>绑定NFC</button>
+                <button class="btn btn-sm" onclick="window.open('/admin/house-assignments.html','_blank')">房源权限</button>
                 <button class="btn btn-sm">导入</button>
             </div>
         </div>
@@ -497,8 +498,8 @@
 
 <script>
 const API_BASE = window.location.origin;
-/** 与后端 mock 用户一致；管理员带此 userId 可查询该用户考勤 */
-const DEMO_STATS_USER_ID = 'mock_user_001';
+/** 兼容历史演示数据：优先 mock_user_001，为空时回退 user_001 */
+const DEMO_STATS_USER_IDS = ['mock_user_001', 'user_001'];
 const AUTH_STORAGE_KEY = 'nfc_admin_jwt';
 let authReadyPromise = null;
 
@@ -571,9 +572,17 @@ function showPage(page) {
 // ===== 数据看板 =====
 async function loadDashboard() {
     try {
-        const res = await apiFetch(`/attendance/stats/today?userId=${encodeURIComponent(DEMO_STATS_USER_ID)}`);
-        const data = await res.json();
-        if (!res.ok) return;
+        let data = null;
+        for (const uid of DEMO_STATS_USER_IDS) {
+            const res = await apiFetch(`/attendance/stats/today?userId=${encodeURIComponent(uid)}`);
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) continue;
+            if ((d.totalCheckIns || 0) > 0 || uid === DEMO_STATS_USER_IDS[DEMO_STATS_USER_IDS.length - 1]) {
+                data = d;
+                break;
+            }
+        }
+        if (!data) return;
         document.getElementById('dash-showings').textContent = data.totalCheckIns ?? 0;
     } catch(e) {}
 }
@@ -581,19 +590,25 @@ async function loadDashboard() {
 // ===== 考勤管理 =====
 async function loadAttendanceRecords() {
     try {
-        const res = await apiFetch(`/attendance/records?userId=${encodeURIComponent(DEMO_STATS_USER_ID)}`);
-        const records = await res.json();
+        let records = null;
+        let lastError = null;
+        for (const uid of DEMO_STATS_USER_IDS) {
+            const res = await apiFetch(`/attendance/records?userId=${encodeURIComponent(uid)}`);
+            const list = await res.json().catch(() => ([]));
+            if (!res.ok) {
+                lastError = list?.message || list?.error || ('HTTP ' + res.status);
+                continue;
+            }
+            if (Array.isArray(list) && (list.length > 0 || uid === DEMO_STATS_USER_IDS[DEMO_STATS_USER_IDS.length - 1])) {
+                records = list;
+                break;
+            }
+        }
         const tbody = document.getElementById('attendance-table-body');
-        if (!res.ok) {
-            const msg = records?.message || records?.error || ('HTTP ' + res.status);
+        if (!Array.isArray(records)) {
+            const msg = lastError || '加载失败';
             tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger);">加载失败: ${msg}</td></tr>`;
             document.getElementById('attendance-count').textContent = '共 0 条';
-            return;
-        }
-        if (!Array.isArray(records)) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--danger);">数据格式错误（非列表）</td></tr>';
-            document.getElementById('attendance-count').textContent = '共 0 条';
-            console.error('records is not array:', records);
             return;
         }
         tbody.innerHTML = records.map(r => `
